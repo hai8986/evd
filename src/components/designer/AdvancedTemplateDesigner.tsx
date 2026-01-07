@@ -36,6 +36,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { setupAutoFontSizeListeners, applyAutoFontSize } from '@/lib/autoFontSize';
 
 const PRESET_SIZES = [
   { name: 'ID Card (CR80)', width: 85.6, height: 53.98 },
@@ -514,49 +515,151 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const handleObjectScaling = (e: any) => {
       const obj = e.target;
       if (!obj) return;
-      
+
       const canvasWidth = fabricCanvas.width || 0;
       const canvasHeight = fabricCanvas.height || 0;
-      const objLeft = obj.left || 0;
-      const objTop = obj.top || 0;
-      
-      // Calculate max allowed dimensions
-      const maxWidth = canvasWidth - objLeft;
-      const maxHeight = canvasHeight - objTop;
-      
-      // Calculate current scaled dimensions
-      const currentWidth = (obj.width || 0) * (obj.scaleX || 1);
-      const currentHeight = (obj.height || 0) * (obj.scaleY || 1);
-      
-      // Constrain scale if object exceeds canvas bounds
-      if (currentWidth > maxWidth || currentHeight > maxHeight) {
-        const scaleX = Math.min(obj.scaleX || 1, maxWidth / (obj.width || 1));
-        const scaleY = Math.min(obj.scaleY || 1, maxHeight / (obj.height || 1));
-        obj.set({ scaleX, scaleY });
+
+      // Textboxes: convert scaling to width in real-time (prevents stretching) and clamp to canvas.
+      if (obj.type === 'textbox') {
+        const minWidth = 50;
+        const scaledWidth = (obj.width || 100) * (obj.scaleX || 1);
+        const nextWidth = Math.max(minWidth, Math.min(scaledWidth, canvasWidth));
+
+        obj.set({
+          width: nextWidth,
+          scaleX: 1,
+          scaleY: 1,
+        });
+        obj.setCoords();
+
+        // Clamp position after width change (works for left/right handle + any originX)
+        let rect = obj.getBoundingRect(true, true);
+
+        if (rect.left < 0) {
+          obj.set({ left: (obj.left || 0) - rect.left });
+        }
+
+        rect = obj.getBoundingRect(true, true);
+        if (rect.left + rect.width > canvasWidth) {
+          const overflowX = rect.left + rect.width - canvasWidth;
+          obj.set({ left: (obj.left || 0) - overflowX });
+        }
+
+        // (Optional safety) keep within vertical bounds if template has tight margins
+        rect = obj.getBoundingRect(true, true);
+        if (rect.top < 0) {
+          obj.set({ top: (obj.top || 0) - rect.top });
+        }
+
+        rect = obj.getBoundingRect(true, true);
+        if (rect.top + rect.height > canvasHeight) {
+          const overflowY = rect.top + rect.height - canvasHeight;
+          obj.set({ top: (obj.top || 0) - overflowY });
+        }
+
+        obj.setCoords();
+        return;
       }
-      
-      // Prevent object from going outside left/top bounds
-      if (objLeft < 0) obj.set({ left: 0 });
-      if (objTop < 0) obj.set({ top: 0 });
+
+      // Non-textbox objects
+      const boundingRect = obj.getBoundingRect(true, true);
+      const objLeft = boundingRect.left;
+      const objTop = boundingRect.top;
+      const objRight = boundingRect.left + boundingRect.width;
+      const objBottom = boundingRect.top + boundingRect.height;
+
+      let needsUpdate = false;
+
+      // Constrain left edge
+      if (objLeft < 0) {
+        obj.set({ left: (obj.left || 0) - objLeft });
+        needsUpdate = true;
+      }
+
+      // Constrain right edge
+      if (objRight > canvasWidth) {
+        const maxWidth = canvasWidth - Math.max(0, objLeft);
+        const scaleX = Math.min(obj.scaleX || 1, maxWidth / (obj.width || 1));
+        obj.set({ scaleX });
+        needsUpdate = true;
+      }
+
+      // Constrain top edge
+      if (objTop < 0) {
+        obj.set({ top: (obj.top || 0) - objTop });
+        needsUpdate = true;
+      }
+
+      // Constrain bottom edge
+      if (objBottom > canvasHeight) {
+        const maxHeight = canvasHeight - Math.max(0, objTop);
+        const scaleY = Math.min(obj.scaleY || 1, maxHeight / (obj.height || 1));
+        obj.set({ scaleY });
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        obj.setCoords();
+      }
     };
     
     // Handle object modified - convert textbox scaling to width change after scaling is done
     const handleObjectModified = (e: any) => {
       const obj = e.target;
       if (!obj) return;
-      
-      // For textbox objects, convert scaling to width/height change
+
+      const canvasWidth = fabricCanvas.width || 0;
+      const canvasHeight = fabricCanvas.height || 0;
+
+      let changed = false;
+
+      // For textbox objects, convert scaling to width change
       // This prevents text from stretching and allows proper word wrap
       if (obj.type === 'textbox' && (obj.scaleX !== 1 || obj.scaleY !== 1)) {
-        const newWidth = (obj.width || 100) * (obj.scaleX || 1);
-        
-        // Set width directly, reset scale to 1 (only horizontal scaling for text)
+        const minWidth = 50;
+        const newWidth = Math.max(minWidth, (obj.width || 100) * (obj.scaleX || 1));
+
         obj.set({
           width: newWidth,
           scaleX: 1,
           scaleY: 1,
         });
-        
+
+        changed = true;
+      }
+
+      // Final safety clamp for textboxes (ensures right edge can't end outside canvas)
+      if (obj.type === 'textbox') {
+        obj.setCoords();
+        let rect = obj.getBoundingRect(true, true);
+
+        if (rect.left < 0) {
+          obj.set({ left: (obj.left || 0) - rect.left });
+          changed = true;
+        }
+
+        rect = obj.getBoundingRect(true, true);
+        if (rect.left + rect.width > canvasWidth) {
+          const overflowX = rect.left + rect.width - canvasWidth;
+          obj.set({ left: (obj.left || 0) - overflowX });
+          changed = true;
+        }
+
+        rect = obj.getBoundingRect(true, true);
+        if (rect.top < 0) {
+          obj.set({ top: (obj.top || 0) - rect.top });
+          changed = true;
+        }
+
+        rect = obj.getBoundingRect(true, true);
+        if (rect.top + rect.height > canvasHeight) {
+          const overflowY = rect.top + rect.height - canvasHeight;
+          obj.set({ top: (obj.top || 0) - overflowY });
+          changed = true;
+        }
+      }
+
+      if (changed) {
         obj.setCoords();
         fabricCanvas.requestRenderAll();
       }
@@ -730,6 +833,17 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       setBackFabricCanvas(null);
     };
   }, [hasBackSide, snapToGrid, gridSize]);
+
+  // Set up auto font size listeners for both canvases
+  useEffect(() => {
+    const cleanupFront = fabricCanvas ? setupAutoFontSizeListeners(fabricCanvas) : () => {};
+    const cleanupBack = backFabricCanvas ? setupAutoFontSizeListeners(backFabricCanvas) : () => {};
+    
+    return () => {
+      cleanupFront();
+      cleanupBack();
+    };
+  }, [fabricCanvas, backFabricCanvas]);
 
   // Load template if editing
   useEffect(() => {
@@ -971,15 +1085,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       ? Math.min(zoom * 1.2, 3) 
       : Math.max(zoom / 1.2, 0.25);
     setZoom(newZoom);
-    
-    // Apply zoom to canvas viewport for better quality
-    if (activeCanvas) {
-      activeCanvas.setZoom(newZoom);
-      activeCanvas.setWidth(widthMm * mmToPixels * newZoom);
-      activeCanvas.setHeight(heightMm * mmToPixels * newZoom);
-      activeCanvas.requestRenderAll();
-    }
-  }, [zoom, activeCanvas, widthMm, heightMm]);
+    // Use CSS transform for zoom - no canvas resizing needed for crisp rendering
+  }, [zoom]);
 
   const addShape = useCallback((type: string) => {
     if (!activeCanvas) return;
@@ -1172,6 +1279,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       strokeWidth: 0,
       padding: 0,
       splitByGrapheme: lastSettings.wordWrap, // Word wrap support
+      lineHeight: 1.2, // Default line height for proper text spacing
+      textAlign: 'left',
       data: {
         type: isVariable ? 'variable' : 'text',
         field: isVariable ? text.replace(/[{}]/g, '') : undefined,
@@ -1241,7 +1350,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     reader.readAsDataURL(file);
   }, [activeCanvas, widthMm, heightMm]);
 
-  const addPlaceholder = useCallback((type: 'photo' | 'barcode' | 'qrcode', shape: PhotoShape = 'rect', customMaskUrl?: string) => {
+  const addPlaceholder = useCallback(async (type: 'photo' | 'barcode' | 'qrcode', shape: PhotoShape = 'rect', customMaskUrl?: string) => {
     if (!activeCanvas) return;
 
     const canvasWidth = (widthMm * mmToPixels) / zoom;
@@ -1405,56 +1514,94 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           break;
       }
     } else if (type === 'barcode') {
-      const barcodeWidth = Math.min(120, canvasWidth * 0.5);
-      const barcodeHeight = Math.min(40, canvasHeight * 0.2);
-      fabricObj = new Rect({
-        left: Math.max(5, centerX - barcodeWidth / 2),
-        top: Math.max(5, centerY - barcodeHeight / 2),
-        width: barcodeWidth,
-        height: barcodeHeight,
-        fill: '#f3f4f6',
-        stroke: '#d1d5db',
-        strokeWidth: 1,
-      });
-      fabricObj.set('data', { type: 'variable', field: 'barcode', isBarcode: true });
+      // Generate actual barcode image
+      const { generateBarcodeDataUrl } = await import('@/lib/codeGenerators');
+      const barcodeData = '{{barcode}}';
+      const placeholderData = 'ID12345';
       
-      // Add barcode lines visual indicator
-      const barcodeText = new Textbox('||||||||||||||||', {
-        left: centerX - 55,
-        top: centerY - 15,
-        fontSize: 24,
-        fontFamily: 'Courier New',
-        fill: '#374151',
-        selectable: false,
-        evented: false,
-      });
-      barcodeText.set('data', { isBarcodeVisual: true });
-      activeCanvas.add(barcodeText);
+      try {
+        const dataUrl = await generateBarcodeDataUrl(placeholderData, {
+          format: 'CODE128',
+          width: 2,
+          height: 50,
+          displayValue: true,
+        });
+        
+        FabricImage.fromURL(dataUrl, { crossOrigin: 'anonymous' }).then((img) => {
+          const maxWidth = Math.min(150, canvasWidth * 0.6);
+          if (img.width && img.height) {
+            const scale = maxWidth / img.width;
+            img.scale(scale);
+          }
+          
+          img.set({
+            left: Math.max(5, centerX - (img.width! * (img.scaleX || 1)) / 2),
+            top: Math.max(5, centerY - (img.height! * (img.scaleY || 1)) / 2),
+            data: { 
+              type: 'variable', 
+              field: 'barcode', 
+              isBarcode: true,
+              barcodeFormat: 'CODE128',
+              barcodeWidth: 2,
+              barcodeHeight: 50,
+              showValue: true,
+              dataField: barcodeData,
+            },
+          });
+          
+          activeCanvas.add(img);
+          activeCanvas.setActiveObject(img);
+          activeCanvas.requestRenderAll();
+          setActiveTool('select');
+          toast.success('Barcode added');
+        });
+      } catch (error) {
+        toast.error('Failed to generate barcode');
+      }
+      return; // Early return since we handle adding asynchronously
     } else if (type === 'qrcode') {
-      fabricObj = new Rect({
-        left: centerX - 30,
-        top: centerY - 30,
-        width: 60,
-        height: 60,
-        fill: '#f3f4f6',
-        stroke: '#d1d5db',
-        strokeWidth: 1,
-      });
-      fabricObj.set('data', { type: 'variable', field: 'qr_code', isQR: true });
+      // Generate actual QR code image
+      const { generateQRCodeDataUrl } = await import('@/lib/codeGenerators');
+      const qrData = '{{qr_code}}';
+      const placeholderData = 'https://example.com';
       
-      // Add QR visual indicator
-      const qrText = new Textbox('QR', {
-        left: centerX - 12,
-        top: centerY - 8,
-        fontSize: 16,
-        fontFamily: 'Arial',
-        fontWeight: 'bold',
-        fill: '#6b7280',
-        selectable: false,
-        evented: false,
-      });
-      qrText.set('data', { isQRVisual: true });
-      activeCanvas.add(qrText);
+      try {
+        const dataUrl = await generateQRCodeDataUrl(placeholderData, {
+          width: 200,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+        
+        FabricImage.fromURL(dataUrl, { crossOrigin: 'anonymous' }).then((img) => {
+          const maxSize = Math.min(80, canvasWidth * 0.3, canvasHeight * 0.4);
+          if (img.width && img.height) {
+            const scale = maxSize / Math.max(img.width, img.height);
+            img.scale(scale);
+          }
+          
+          img.set({
+            left: Math.max(5, centerX - (img.width! * (img.scaleX || 1)) / 2),
+            top: Math.max(5, centerY - (img.height! * (img.scaleY || 1)) / 2),
+            data: { 
+              type: 'variable', 
+              field: 'qr_code', 
+              isQR: true,
+              qrSize: 200,
+              qrDarkColor: '#000000',
+              qrLightColor: '#ffffff',
+              dataField: qrData,
+            },
+          });
+          
+          activeCanvas.add(img);
+          activeCanvas.setActiveObject(img);
+          activeCanvas.requestRenderAll();
+          setActiveTool('select');
+          toast.success('QR Code added');
+        });
+      } catch (error) {
+        toast.error('Failed to generate QR code');
+      }
+      return; // Early return since we handle adding asynchronously
     }
 
     if (fabricObj) {
@@ -2613,8 +2760,6 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           case '0':
             e.preventDefault();
             setZoom(1);
-            activeCanvas?.setZoom(1);
-            activeCanvas?.requestRenderAll();
             break;
         }
       } else {
@@ -2714,8 +2859,6 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           const scale = currentDistance / initialDistance;
           const newZoom = Math.min(Math.max(initialZoom * scale, 0.25), 4);
           setZoom(newZoom);
-          activeCanvas?.setZoom(newZoom);
-          activeCanvas?.requestRenderAll();
         }
       }
     };
@@ -3005,8 +3148,14 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
                     </div>
                   )}
                   
-                  {/* Main canvas container */}
-                  <div className="relative shadow-2xl rounded-lg overflow-hidden border border-border">
+                  {/* Main canvas container - use CSS transform for crisp zoom */}
+                  <div 
+                    className="relative shadow-2xl rounded-lg overflow-hidden border border-border"
+                    style={{
+                      transform: `scale(${zoom})`,
+                      transformOrigin: 'top left',
+                    }}
+                  >
                     <div style={{ display: activeSide === 'front' ? 'block' : 'none' }}>
                       <canvas ref={canvasRef} />
                     </div>
@@ -3032,8 +3181,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
             zoom={zoom}
             onZoomIn={() => handleZoom('in')}
             onZoomOut={() => handleZoom('out')}
-            onZoomReset={() => { setZoom(1); if (activeCanvas) { activeCanvas.setZoom(1); activeCanvas.setWidth(widthMm * mmToPixels); activeCanvas.setHeight(heightMm * mmToPixels); activeCanvas.requestRenderAll(); } }}
-            onZoomChange={(newZoom) => { setZoom(newZoom); if (activeCanvas) { activeCanvas.setZoom(newZoom); activeCanvas.requestRenderAll(); } }}
+            onZoomReset={() => setZoom(1)}
+            onZoomChange={(newZoom) => setZoom(newZoom)}
             showGrid={showGrid}
             onToggleGrid={() => setShowGrid(!showGrid)}
             isPreviewMode={isPreviewMode}
@@ -3049,7 +3198,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         </div>
 
         {/* Right Panel - Properties, Layers, Templates, Gallery, FAQ, Help */}
-        <div className="hidden md:flex w-80 flex-shrink-0 overflow-hidden">
+        <div className="hidden md:flex w-72 lg:w-80 xl:w-[340px] flex-shrink-0 overflow-hidden">
           <DesignerRightPanel 
             selectedObject={selectedObject} 
             canvas={activeCanvas}

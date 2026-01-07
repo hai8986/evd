@@ -1,123 +1,62 @@
-import { pipeline, env } from '@huggingface/transformers';
+import { supabase } from '@/integrations/supabase/client';
 
-env.allowLocalModels = false;
-env.useBrowserCache = true;
-
-const MAX_DIMENSION = 1024;
-
-let segmenter: any = null;
-
-export async function initBackgroundRemover() {
-  if (segmenter) return segmenter;
+/**
+ * Remove background from an image using the remove.bg API via edge function
+ * @param imageUrl - URL of the image or data URL
+ * @returns Promise<string> - Data URL of the processed image with background removed
+ */
+export async function removeBackground(imageUrl: string): Promise<string> {
+  // Convert URL to blob
+  let imageBlob: Blob;
   
-  try {
-    segmenter = await pipeline(
-      'image-segmentation',
-      'Xenova/modnet',
-      { device: 'webgpu' }
-    );
-    return segmenter;
-  } catch (error) {
-    console.error('Failed to initialize with WebGPU, trying WASM:', error);
-    segmenter = await pipeline(
-      'image-segmentation',
-      'Xenova/modnet'
-    );
-    return segmenter;
+  if (imageUrl.startsWith('data:')) {
+    // It's a data URL, convert to blob
+    const response = await fetch(imageUrl);
+    imageBlob = await response.blob();
+  } else {
+    // It's a regular URL, fetch and convert
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error('Failed to fetch image');
+    }
+    imageBlob = await response.blob();
   }
+
+  // Create FormData and send to edge function
+  const formData = new FormData();
+  formData.append('image', imageBlob, 'image.png');
+
+  // Get the Supabase URL from the client
+  const supabaseUrl = 'https://jkcdwxkqzohibsxglhyk.supabase.co';
+  
+  const response = await fetch(`${supabaseUrl}/functions/v1/remove-bg`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Remove background error:', errorText);
+    throw new Error('Failed to remove background: ' + errorText);
+  }
+
+  // Convert response to data URL
+  const resultBlob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      resolve(reader.result as string);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(resultBlob);
+  });
 }
 
-export async function removeBackground(imageUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
-    img.onload = async () => {
-      try {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d')!;
-        
-        let width = img.width;
-        let height = img.height;
-        
-        // Resize if needed
-        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-          if (width > height) {
-            height = Math.round((height * MAX_DIMENSION) / width);
-            width = MAX_DIMENSION;
-          } else {
-            width = Math.round((width * MAX_DIMENSION) / height);
-            height = MAX_DIMENSION;
-          }
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        const imageData = canvas.toDataURL('image/jpeg', 0.9);
-        
-        try {
-          const model = await initBackgroundRemover();
-          const result = await model(imageData);
-          
-          if (!result || !Array.isArray(result) || result.length === 0) {
-            throw new Error('Background removal model returned no results');
-          }
-          
-          // Create output canvas with WHITE background
-          const outputCanvas = document.createElement('canvas');
-          outputCanvas.width = width;
-          outputCanvas.height = height;
-          const outputCtx = outputCanvas.getContext('2d')!;
-          
-          // Fill with WHITE background first
-          outputCtx.fillStyle = '#FFFFFF';
-          outputCtx.fillRect(0, 0, width, height);
-          
-          // Get original image data
-          const originalImageData = ctx.getImageData(0, 0, width, height);
-          const originalData = originalImageData.data;
-          
-          // Create temporary canvas for masked subject
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = width;
-          tempCanvas.height = height;
-          const tempCtx = tempCanvas.getContext('2d')!;
-          tempCtx.drawImage(canvas, 0, 0);
-          const tempImageData = tempCtx.getImageData(0, 0, width, height);
-          const tempData = tempImageData.data;
-          
-          // Apply mask - blend subject with white background
-          if (result[0].mask && result[0].mask.data) {
-            for (let i = 0; i < result[0].mask.data.length; i++) {
-              const maskValue = result[0].mask.data[i];
-              const idx = i * 4;
-              
-              // Blend: subject * mask + white * (1 - mask)
-              tempData[idx] = Math.round(originalData[idx] * maskValue + 255 * (1 - maskValue));
-              tempData[idx + 1] = Math.round(originalData[idx + 1] * maskValue + 255 * (1 - maskValue));
-              tempData[idx + 2] = Math.round(originalData[idx + 2] * maskValue + 255 * (1 - maskValue));
-              tempData[idx + 3] = 255; // Fully opaque
-            }
-            tempCtx.putImageData(tempImageData, 0, 0);
-            outputCtx.drawImage(tempCanvas, 0, 0);
-          } else {
-            throw new Error('No mask data in result');
-          }
-          
-          resolve(outputCanvas.toDataURL('image/png'));
-        } catch (modelError) {
-          console.warn('Model-based removal failed, using fallback:', modelError);
-          // Fallback: return original with white background attempt
-          resolve(canvas.toDataURL('image/png'));
-        }
-      } catch (error) {
-        reject(error);
-      }
-    };
-    
-    img.onerror = () => reject(new Error('Failed to load image'));
-    img.src = imageUrl;
-  });
+/**
+ * Initialize background remover (no-op for API-based approach)
+ * Kept for backwards compatibility
+ */
+export async function initBackgroundRemover(): Promise<void> {
+  // No initialization needed for API-based approach
+  return Promise.resolve();
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,6 +15,64 @@ import {
 } from 'lucide-react';
 import { DesignerGradientPicker, GradientConfig, gradientConfigToFabric } from './DesignerGradientPicker';
 import { Gradient } from 'fabric';
+import { applyAutoFontSize } from '@/lib/autoFontSize';
+
+// Debounced number input component to prevent cursor jumping
+interface DebouncedNumberInputProps {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  className?: string;
+  disabled?: boolean;
+}
+
+function DebouncedNumberInput({ value, onChange, min, max, step = 1, className, disabled }: DebouncedNumberInputProps) {
+  const [localValue, setLocalValue] = useState(String(value));
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  useEffect(() => {
+    // Only update local value if input is not focused
+    if (document.activeElement !== inputRef.current) {
+      setLocalValue(String(value));
+    }
+  }, [value]);
+  
+  const commitValue = useCallback(() => {
+    const num = parseFloat(localValue);
+    if (!isNaN(num)) {
+      let finalValue = num;
+      if (min !== undefined) finalValue = Math.max(min, finalValue);
+      if (max !== undefined) finalValue = Math.min(max, finalValue);
+      onChange(finalValue);
+      setLocalValue(String(finalValue));
+    } else {
+      setLocalValue(String(value));
+    }
+  }, [localValue, value, onChange, min, max]);
+  
+  return (
+    <Input
+      ref={inputRef}
+      type="number"
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={commitValue}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          commitValue();
+          inputRef.current?.blur();
+        }
+      }}
+      min={min}
+      max={max}
+      step={step}
+      className={className}
+      disabled={disabled}
+    />
+  );
+}
 
 const FONTS = [
   'Arial', 'Helvetica', 'Times New Roman', 'Georgia', 'Verdana', 
@@ -277,15 +335,13 @@ export function DesignerTextToolbar({ selectedObject, canvas, onUpdate, customFo
         >
           <Minus className="h-3 w-3" />
         </Button>
-        <Input
-          type="number"
+        <DebouncedNumberInput
           value={fontSize}
-          onChange={(e) => {
-            const val = parseInt(e.target.value) || 16;
+          onChange={(val) => {
             setFontSize(val);
             updateProperty('fontSize', val);
           }}
-          className="h-7 w-12 text-xs text-center"
+          className="h-7 w-14 text-xs text-center"
           min={8}
           max={200}
         />
@@ -774,6 +830,12 @@ export function DesignerTextToolbar({ selectedObject, canvas, onUpdate, customFo
               setAutoFontSize(newVal);
               if (!selectedObject.data) selectedObject.data = {};
               selectedObject.data.autoFontSize = newVal;
+              
+              // Apply auto font size immediately when enabled
+              if (newVal) {
+                applyAutoFontSize(selectedObject, canvas);
+              }
+              
               canvas.requestRenderAll();
               onUpdate();
               if (onTextSettingsChange) {
@@ -784,7 +846,7 @@ export function DesignerTextToolbar({ selectedObject, canvas, onUpdate, customFo
             <Scaling className="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-xs">Auto Font Size</TooltipContent>
+        <TooltipContent side="bottom" className="text-xs">Auto Font Size (fit to box)</TooltipContent>
       </Tooltip>
 
       {/* Word Wrap */}
