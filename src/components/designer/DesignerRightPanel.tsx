@@ -95,7 +95,7 @@ export function DesignerRightPanel({
     }
   };
 
-  const tabBar = (
+  const TabBar = () => (
     <div className="flex flex-col gap-1 p-1.5 bg-muted/50 border-l border-border">
       {TAB_ITEMS.map((item) => (
         <Tooltip key={item.id}>
@@ -117,42 +117,48 @@ export function DesignerRightPanel({
     </div>
   );
 
-  const panelContent = (
-    <div className="flex h-full bg-background border-l border-border w-full">
+  const PanelContent = () => (
+    <div className="flex h-full bg-background border-l border-border">
       {/* Content Area */}
       <div className="flex-1 min-w-0 overflow-hidden">
         {activeTab === 'properties' || activeTab === 'layers' ? (
           renderTabContent()
         ) : (
-          <ScrollArea className="h-full">{renderTabContent()}</ScrollArea>
+          <ScrollArea className="h-full">
+            {renderTabContent()}
+          </ScrollArea>
         )}
       </div>
 
       {/* Tab Bar */}
-      <TooltipProvider>{tabBar}</TooltipProvider>
+      <TooltipProvider>
+        <TabBar />
+      </TooltipProvider>
     </div>
   );
 
   // Mobile view with Sheet
   if (isMobile) {
     return (
-      <Sheet open={isOpen} onOpenChange={setIsOpen}>
-        <SheetTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon"
-            className="fixed bottom-20 right-4 z-50 h-12 w-12 rounded-full shadow-lg bg-background border-border"
-          >
-            <PanelRight className="h-5 w-5" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="right" className="w-80 p-0">
-          {panelContent}
-        </SheetContent>
-      </Sheet>
+      <>
+        <Sheet open={isOpen} onOpenChange={setIsOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="fixed bottom-20 right-4 z-50 h-12 w-12 rounded-full shadow-lg bg-background border-border"
+            >
+              <PanelRight className="h-5 w-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-80 p-0">
+            <PanelContent />
+          </SheetContent>
+        </Sheet>
+      </>
     );
   }
 
   // Desktop view
-  return panelContent;
+  return <PanelContent />;
 }

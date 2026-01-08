@@ -36,7 +36,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { setupAutoFontSizeListeners, applyAutoFontSize } from '@/lib/autoFontSize';
 
 const PRESET_SIZES = [
   { name: 'ID Card (CR80)', width: 85.6, height: 53.98 },
@@ -70,11 +69,11 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(true);
   const [clipboard, setClipboard] = useState<any>(null);
-  
+
   // Pan tool state - use refs to avoid re-registering event handlers
   const isPanningRef = useRef(false);
   const lastPanPositionRef = useRef<{ x: number; y: number } | null>(null);
-  
+
   // History for undo/redo
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -91,54 +90,54 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   const [heightMm, setHeightMm] = useState(53.98);
   const [isPublic, setIsPublic] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  
+
   // Sidebar state
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab | null>(null);
-  
+
   // Margin settings
   const [marginTop, setMarginTop] = useState(1);
   const [marginLeft, setMarginLeft] = useState(1);
   const [marginRight, setMarginRight] = useState(1);
   const [marginBottom, setMarginBottom] = useState(1);
-  
+
   // Background state
   const [backgroundColor, setBackgroundColor] = useState('#ffffff');
   const [hasBackgroundImage, setHasBackgroundImage] = useState(false);
-  
+
   // Snap to grid state
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize, setGridSize] = useState(10);
-  
+
   // Guides state
   const [showGuides, setShowGuides] = useState(true);
   const [showTopIndicator, setShowTopIndicator] = useState(true);
   const [bleedMm, setBleedMm] = useState(3);
   const [safeZoneMm, setSafeZoneMm] = useState(4);
-  
+
   // Custom fonts and shapes
   const [customFonts, setCustomFonts] = useState<string[]>([]);
   const [customShapes, setCustomShapes] = useState<{ name: string; url: string }[]>([]);
-  
+
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number }>({
     visible: false,
     x: 0,
     y: 0,
   });
-  
+
   // Manual save only (auto-save removed)
-  
+
   // Data preview state
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewData, setPreviewData] = useState<Record<string, string>>({});
   const [detectedVariables, setDetectedVariables] = useState<string[]>([]);
-  
+
   // Multi-page state
   const [pages, setPages] = useState<PageData[]>([
     { id: crypto.randomUUID(), name: 'Page 1', designJson: null }
   ]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  
+
   // Store last used text settings for new text elements
   const lastTextSettingsRef = useRef({
     fontSize: 14,
@@ -222,7 +221,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     // Set selection style for dotted borders
     canvas.selectionBorderColor = 'hsl(var(--primary))';
     canvas.selectionLineWidth = 1;
-    
+
     canvas.on('selection:created', (e) => {
       const selected = e.selected?.[0] as any;
       // Prevent selecting locked background
@@ -270,7 +269,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     canvas.on('object:modified', (e) => {
       saveToHistory();
       updateObjectsList();
-      
+
       // Handle text scaling - adjust font size instead of scale for crisp text
       const obj = e.target as any;
       if (obj && (obj.type === 'textbox' || obj.type === 'i-text')) {
@@ -290,17 +289,17 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       }
     });
     canvas.on('object:added', () => {
-      if (!isHistoryActionRef.current) saveToHistory();
+      if (!isHistoryActionRef.current) saveToHistory(true);
       updateObjectsList();
     });
     canvas.on('object:removed', () => {
-      if (!isHistoryActionRef.current) saveToHistory();
+      if (!isHistoryActionRef.current) saveToHistory(true);
       updateObjectsList();
     });
-    
+
     // Note: object:moving and object:scaling handlers are set up in the alignment guides effect
     // to allow combining boundary constraints with alignment snap functionality
-    
+
     // Store original position when object is selected (for locked objects)
     canvas.on('mouse:down', (e) => {
       const obj = e.target as any;
@@ -311,7 +310,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     });
 
     setFabricCanvas(canvas);
-    
+
     // Initial history save
     setTimeout(() => {
       const initialState = JSON.stringify(canvas.toObject());
@@ -332,12 +331,12 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     try {
       const canvasWidth = widthMm * mmToPixels;
       const canvasHeight = heightMm * mmToPixels;
-      
+
       fabricCanvas.setDimensions({
         width: canvasWidth,
         height: canvasHeight,
       });
-      
+
       // Update clip path to match new dimensions
       const clipRect = new Rect({
         left: 0,
@@ -347,7 +346,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         absolutePositioned: true,
       });
       fabricCanvas.clipPath = clipRect;
-      
+
       fabricCanvas.requestRenderAll();
     } catch (e) {
       // Canvas may have been disposed
@@ -357,22 +356,22 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   // Smart alignment guides and snap-to-grid behavior
   useEffect(() => {
     if (!fabricCanvas) return;
-    
+
     const aligningLineMargin = 5; // Threshold for showing alignment guides
     const aligningLineOffset = 5;
     const aligningLineColor = 'hsl(var(--primary))';
     const aligningLineWidth = 1;
-    
+
     let verticalLines: any[] = [];
     let horizontalLines: any[] = [];
-    
+
     const clearGuidelines = () => {
       verticalLines.forEach(line => fabricCanvas.remove(line));
       horizontalLines.forEach(line => fabricCanvas.remove(line));
       verticalLines = [];
       horizontalLines = [];
     };
-    
+
     const drawVerticalLine = (x: number) => {
       const line = new Line([x, 0, x, fabricCanvas.height || 0], {
         stroke: aligningLineColor,
@@ -385,7 +384,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       verticalLines.push(line);
       fabricCanvas.add(line);
     };
-    
+
     const drawHorizontalLine = (y: number) => {
       const line = new Line([0, y, fabricCanvas.width || 0, y], {
         stroke: aligningLineColor,
@@ -398,11 +397,11 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       horizontalLines.push(line);
       fabricCanvas.add(line);
     };
-    
+
     const handleObjectMoving = (e: any) => {
       const movingObj = e.target;
       if (!movingObj) return;
-      
+
       // Prevent movement of locked objects
       if (movingObj.lockMovementX && movingObj.lockMovementY) {
         movingObj.set({
@@ -411,34 +410,34 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         });
         return;
       }
-      
+
       // Clear previous guidelines
       clearGuidelines();
-      
+
       // Get object dimensions for boundary checking
       const movingWidth = (movingObj.width || 0) * (movingObj.scaleX || 1);
       const movingHeight = (movingObj.height || 0) * (movingObj.scaleY || 1);
       const canvasWidth = fabricCanvas.width || 0;
       const canvasHeight = fabricCanvas.height || 0;
-      
+
       // Apply grid snapping if enabled
       let newLeft = movingObj.left || 0;
       let newTop = movingObj.top || 0;
-      
+
       if (snapToGrid) {
         newLeft = Math.round(newLeft / gridSize) * gridSize;
         newTop = Math.round(newTop / gridSize) * gridSize;
       }
-      
+
       // Constrain position within canvas bounds
       newLeft = Math.max(0, Math.min(newLeft, canvasWidth - movingWidth));
       newTop = Math.max(0, Math.min(newTop, canvasHeight - movingHeight));
-      
+
       movingObj.set({ left: newLeft, top: newTop });
-      
+
       // Update coords before getting bounds for accurate measurements
       movingObj.setCoords();
-      
+
       // Recalculate bounds after constraining
       const movingLeft = movingObj.left || 0;
       const movingTop = movingObj.top || 0;
@@ -446,11 +445,11 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       const movingCenterY = movingTop + movingHeight / 2;
       const movingRight = movingLeft + movingWidth;
       const movingBottom = movingTop + movingHeight;
-      
+
       // Check alignment with other objects
       fabricCanvas.getObjects().forEach((obj: any) => {
         if (obj === movingObj || obj.data?.isGuideline) return;
-        
+
         const objLeft = obj.left || 0;
         const objTop = obj.top || 0;
         const objWidth = (obj.width || 0) * (obj.scaleX || 1);
@@ -459,7 +458,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         const objCenterY = objTop + objHeight / 2;
         const objRight = objLeft + objWidth;
         const objBottom = objTop + objHeight;
-        
+
         // Vertical alignments (left, center, right) - with boundary check
         if (Math.abs(movingLeft - objLeft) < aligningLineMargin) {
           const targetLeft = Math.max(0, Math.min(objLeft, canvasWidth - movingWidth));
@@ -476,7 +475,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           drawVerticalLine(objRight);
           movingObj.set('left', targetLeft);
         }
-        
+
         // Horizontal alignments (top, center, bottom) - with boundary check
         if (Math.abs(movingTop - objTop) < aligningLineMargin) {
           const targetTop = Math.max(0, Math.min(objTop, canvasHeight - movingHeight));
@@ -494,7 +493,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           movingObj.set('top', targetTop);
         }
       });
-      
+
       // Check canvas center alignment - with boundary check
       if (Math.abs(movingCenterX - canvasWidth / 2) < aligningLineMargin) {
         const targetLeft = Math.max(0, Math.min(canvasWidth / 2 - movingWidth / 2, canvasWidth - movingWidth));
@@ -506,11 +505,11 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         drawHorizontalLine(canvasHeight / 2);
         movingObj.set('top', targetTop);
       }
-      
+
       // Update coords after any snapping adjustments
       movingObj.setCoords();
     };
-    
+
     // Handle object scaling - constrain within canvas bounds and handle textbox resizing
     const handleObjectScaling = (e: any) => {
       const obj = e.target;
@@ -518,158 +517,56 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
       const canvasWidth = fabricCanvas.width || 0;
       const canvasHeight = fabricCanvas.height || 0;
+      const objLeft = obj.left || 0;
+      const objTop = obj.top || 0;
 
-      // Textboxes: convert scaling to width in real-time (prevents stretching) and clamp to canvas.
-      if (obj.type === 'textbox') {
-        const minWidth = 50;
-        const scaledWidth = (obj.width || 100) * (obj.scaleX || 1);
-        const nextWidth = Math.max(minWidth, Math.min(scaledWidth, canvasWidth));
+      // Calculate max allowed dimensions
+      const maxWidth = canvasWidth - objLeft;
+      const maxHeight = canvasHeight - objTop;
 
-        obj.set({
-          width: nextWidth,
-          scaleX: 1,
-          scaleY: 1,
-        });
-        obj.setCoords();
+      // Calculate current scaled dimensions
+      const currentWidth = (obj.width || 0) * (obj.scaleX || 1);
+      const currentHeight = (obj.height || 0) * (obj.scaleY || 1);
 
-        // Clamp position after width change (works for left/right handle + any originX)
-        let rect = obj.getBoundingRect(true, true);
-
-        if (rect.left < 0) {
-          obj.set({ left: (obj.left || 0) - rect.left });
-        }
-
-        rect = obj.getBoundingRect(true, true);
-        if (rect.left + rect.width > canvasWidth) {
-          const overflowX = rect.left + rect.width - canvasWidth;
-          obj.set({ left: (obj.left || 0) - overflowX });
-        }
-
-        // (Optional safety) keep within vertical bounds if template has tight margins
-        rect = obj.getBoundingRect(true, true);
-        if (rect.top < 0) {
-          obj.set({ top: (obj.top || 0) - rect.top });
-        }
-
-        rect = obj.getBoundingRect(true, true);
-        if (rect.top + rect.height > canvasHeight) {
-          const overflowY = rect.top + rect.height - canvasHeight;
-          obj.set({ top: (obj.top || 0) - overflowY });
-        }
-
-        obj.setCoords();
-        return;
-      }
-
-      // Non-textbox objects
-      const boundingRect = obj.getBoundingRect(true, true);
-      const objLeft = boundingRect.left;
-      const objTop = boundingRect.top;
-      const objRight = boundingRect.left + boundingRect.width;
-      const objBottom = boundingRect.top + boundingRect.height;
-
-      let needsUpdate = false;
-
-      // Constrain left edge
-      if (objLeft < 0) {
-        obj.set({ left: (obj.left || 0) - objLeft });
-        needsUpdate = true;
-      }
-
-      // Constrain right edge
-      if (objRight > canvasWidth) {
-        const maxWidth = canvasWidth - Math.max(0, objLeft);
+      // Constrain scale if object exceeds canvas bounds
+      if (currentWidth > maxWidth || currentHeight > maxHeight) {
         const scaleX = Math.min(obj.scaleX || 1, maxWidth / (obj.width || 1));
-        obj.set({ scaleX });
-        needsUpdate = true;
-      }
-
-      // Constrain top edge
-      if (objTop < 0) {
-        obj.set({ top: (obj.top || 0) - objTop });
-        needsUpdate = true;
-      }
-
-      // Constrain bottom edge
-      if (objBottom > canvasHeight) {
-        const maxHeight = canvasHeight - Math.max(0, objTop);
         const scaleY = Math.min(obj.scaleY || 1, maxHeight / (obj.height || 1));
-        obj.set({ scaleY });
-        needsUpdate = true;
+        obj.set({ scaleX, scaleY });
       }
 
-      if (needsUpdate) {
-        obj.setCoords();
-      }
+      // Prevent object from going outside left/top bounds
+      if (objLeft < 0) obj.set({ left: 0 });
+      if (objTop < 0) obj.set({ top: 0 });
     };
-    
+
     // Handle object modified - convert textbox scaling to width change after scaling is done
     const handleObjectModified = (e: any) => {
       const obj = e.target;
       if (!obj) return;
 
-      const canvasWidth = fabricCanvas.width || 0;
-      const canvasHeight = fabricCanvas.height || 0;
-
-      let changed = false;
-
-      // For textbox objects, convert scaling to width change
+      // For textbox objects, convert scaling to width/height change
       // This prevents text from stretching and allows proper word wrap
       if (obj.type === 'textbox' && (obj.scaleX !== 1 || obj.scaleY !== 1)) {
-        const minWidth = 50;
-        const newWidth = Math.max(minWidth, (obj.width || 100) * (obj.scaleX || 1));
+        const newWidth = (obj.width || 100) * (obj.scaleX || 1);
 
+        // Set width directly, reset scale to 1 (only horizontal scaling for text)
         obj.set({
           width: newWidth,
           scaleX: 1,
           scaleY: 1,
         });
 
-        changed = true;
-      }
-
-      // Final safety clamp for textboxes (ensures right edge can't end outside canvas)
-      if (obj.type === 'textbox') {
-        obj.setCoords();
-        let rect = obj.getBoundingRect(true, true);
-
-        if (rect.left < 0) {
-          obj.set({ left: (obj.left || 0) - rect.left });
-          changed = true;
-        }
-
-        rect = obj.getBoundingRect(true, true);
-        if (rect.left + rect.width > canvasWidth) {
-          const overflowX = rect.left + rect.width - canvasWidth;
-          obj.set({ left: (obj.left || 0) - overflowX });
-          changed = true;
-        }
-
-        rect = obj.getBoundingRect(true, true);
-        if (rect.top < 0) {
-          obj.set({ top: (obj.top || 0) - rect.top });
-          changed = true;
-        }
-
-        rect = obj.getBoundingRect(true, true);
-        if (rect.top + rect.height > canvasHeight) {
-          const overflowY = rect.top + rect.height - canvasHeight;
-          obj.set({ top: (obj.top || 0) - overflowY });
-          changed = true;
-        }
-      }
-
-      if (changed) {
         obj.setCoords();
         fabricCanvas.requestRenderAll();
       }
     };
-    
+
     const handleMouseUp = () => {
       clearGuidelines();
       fabricCanvas.requestRenderAll();
     };
-    
+
     fabricCanvas.off('object:moving');
     fabricCanvas.off('object:scaling');
     fabricCanvas.off('object:modified');
@@ -678,7 +575,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     fabricCanvas.on('object:scaling', handleObjectScaling);
     fabricCanvas.on('object:modified', handleObjectModified);
     fabricCanvas.on('mouse:up', handleMouseUp);
-    
+
     return () => {
       fabricCanvas.off('object:moving', handleObjectMoving);
       fabricCanvas.off('object:scaling', handleObjectScaling);
@@ -705,7 +602,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     // Set selection style for dotted borders
     canvas.selectionBorderColor = 'hsl(var(--primary))';
     canvas.selectionLineWidth = 1;
-    
+
     canvas.on('selection:created', (e) => {
       const selected = e.selected?.[0];
       if (selected) {
@@ -741,8 +638,9 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       setSelectedObject(null);
     });
     canvas.on('object:modified', (e) => {
+      saveToHistory();
       updateObjectsList();
-      
+
       // Handle text scaling - adjust font size instead of scale for crisp text
       const obj = e.target as any;
       if (obj && (obj.type === 'textbox' || obj.type === 'i-text')) {
@@ -761,61 +659,67 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         }
       }
     });
-    canvas.on('object:added', updateObjectsList);
-    canvas.on('object:removed', updateObjectsList);
-    
+    canvas.on('object:added', () => {
+      if (!isHistoryActionRef.current) saveToHistory(true);
+      updateObjectsList();
+    });
+    canvas.on('object:removed', () => {
+      if (!isHistoryActionRef.current) saveToHistory(true);
+      updateObjectsList();
+    });
+
     // Constrain objects within canvas bounds on moving (for back canvas)
     canvas.on('object:moving', (e) => {
       const obj = e.target as any;
       if (!obj) return;
-      
+
       const objWidth = (obj.width || 0) * (obj.scaleX || 1);
       const objHeight = (obj.height || 0) * (obj.scaleY || 1);
       const canvasWidth = canvas.width || 0;
       const canvasHeight = canvas.height || 0;
-      
+
       let newLeft = obj.left || 0;
       let newTop = obj.top || 0;
-      
+
       // Constrain and apply grid snap
       newLeft = Math.max(0, Math.min(newLeft, canvasWidth - objWidth));
       newTop = Math.max(0, Math.min(newTop, canvasHeight - objHeight));
-      
+
       if (snapToGrid) {
         newLeft = Math.round(newLeft / gridSize) * gridSize;
         newTop = Math.round(newTop / gridSize) * gridSize;
         newLeft = Math.max(0, Math.min(newLeft, canvasWidth - objWidth));
         newTop = Math.max(0, Math.min(newTop, canvasHeight - objHeight));
       }
-      
+
       obj.set({ left: newLeft, top: newTop });
     });
-    
+
     // Constrain objects within canvas bounds on scaling (for back canvas)
     canvas.on('object:scaling', (e) => {
       const obj = e.target as any;
       if (!obj) return;
-      
+
       const canvasWidth = canvas.width || 0;
       const canvasHeight = canvas.height || 0;
       const objLeft = obj.left || 0;
       const objTop = obj.top || 0;
-      
+
       const maxWidth = canvasWidth - objLeft;
       const maxHeight = canvasHeight - objTop;
       const currentWidth = (obj.width || 0) * (obj.scaleX || 1);
       const currentHeight = (obj.height || 0) * (obj.scaleY || 1);
-      
+
       if (currentWidth > maxWidth || currentHeight > maxHeight) {
         const scaleX = Math.min(obj.scaleX || 1, maxWidth / (obj.width || 1));
         const scaleY = Math.min(obj.scaleY || 1, maxHeight / (obj.height || 1));
         obj.set({ scaleX, scaleY });
       }
-      
+
       if (objLeft < 0) obj.set({ left: 0 });
       if (objTop < 0) obj.set({ top: 0 });
     });
-    
+
     // Add clip path for back canvas
     const clipRect = new Rect({
       left: 0,
@@ -834,17 +738,6 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     };
   }, [hasBackSide, snapToGrid, gridSize]);
 
-  // Set up auto font size listeners for both canvases
-  useEffect(() => {
-    const cleanupFront = fabricCanvas ? setupAutoFontSizeListeners(fabricCanvas) : () => {};
-    const cleanupBack = backFabricCanvas ? setupAutoFontSizeListeners(backFabricCanvas) : () => {};
-    
-    return () => {
-      cleanupFront();
-      cleanupBack();
-    };
-  }, [fabricCanvas, backFabricCanvas]);
-
   // Load template if editing
   useEffect(() => {
     if (editTemplate && fabricCanvas) {
@@ -857,10 +750,10 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
       if (editTemplate.design_json) {
         const designJson = editTemplate.design_json;
-        
+
         // Mark as history action to prevent duplicate saves during load
         isHistoryActionRef.current = true;
-        
+
         // Check if template has multi-page data
         if (designJson.__pages && Array.isArray(designJson.__pages)) {
           // Load pages from saved data
@@ -871,7 +764,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           }));
           setPages(loadedPages);
           setCurrentPageIndex(0);
-          
+
           // Load first page content
           if (loadedPages[0]?.designJson) {
             // Remove __pages from the design JSON before loading
@@ -897,7 +790,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           delete cleanDesign.__pages;
           setPages([{ id: crypto.randomUUID(), name: 'Page 1', designJson: cleanDesign }]);
           setCurrentPageIndex(0);
-          
+
           fabricCanvas.loadFromJSON(cleanDesign).then(() => {
             fabricCanvas.requestRenderAll();
             updateObjectsList();
@@ -926,35 +819,31 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     updateObjectsList();
   }, [updateObjectsList]);
 
-  const saveToHistory = useCallback(() => {
+  const saveToHistory = useCallback((immediate = false) => {
     if (!activeCanvas || isHistoryActionRef.current) return;
-    
+
     // Clear any existing debounce timeout
     if (historyDebounceRef.current) {
       clearTimeout(historyDebounceRef.current);
     }
-    
-    // Mark that we have a pending save
-    pendingHistorySaveRef.current = true;
-    
-    // Debounce history saves to group rapid changes into one history entry
-    historyDebounceRef.current = setTimeout(() => {
-      if (!pendingHistorySaveRef.current || !activeCanvas) return;
-      
+
+    const saveAction = () => {
+      if (!activeCanvas) return;
+
       const json = JSON.stringify(activeCanvas.toObject());
-      const currentIndex = historyIndexRef.current; // Use ref for accurate current index
-      const currentHistory = historyRef.current; // Use ref for accurate history
-      
+      const currentIndex = historyIndexRef.current;
+      const currentHistory = historyRef.current;
+
       // Don't save if it's the same as the current state
       if (currentHistory[currentIndex] === json) {
         pendingHistorySaveRef.current = false;
         return;
       }
-      
-      // When adding new state, cut off any redo history (states after current index)
+
+      // When adding new state, cut off any redo history
       const newHistory = currentHistory.slice(0, currentIndex + 1);
       newHistory.push(json);
-      
+
       // Keep only last 50 states
       if (newHistory.length > 50) {
         newHistory.shift();
@@ -962,14 +851,26 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       } else {
         historyIndexRef.current = newHistory.length - 1;
       }
-      
-      // Update both ref and state
+
       historyRef.current = newHistory;
       setHistory(newHistory);
       setHistoryIndex(historyIndexRef.current);
-      
       pendingHistorySaveRef.current = false;
-    }, 300);
+    };
+
+    if (immediate) {
+      saveAction();
+      return;
+    }
+
+    // Mark that we have a pending save
+    pendingHistorySaveRef.current = true;
+
+    // Debounce history saves - reduced to 100ms for responsiveness
+    historyDebounceRef.current = setTimeout(() => {
+      if (!pendingHistorySaveRef.current) return;
+      saveAction();
+    }, 100);
   }, [activeCanvas]);
 
   // Arrow key movement for selected objects
@@ -978,13 +879,13 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       if (!activeCanvas) return;
       const activeObject = activeCanvas.getActiveObject();
       if (!activeObject) return;
-      
+
       // Don't handle if we're editing text
       if (activeObject.type === 'textbox' && (activeObject as any).isEditing) return;
-      
+
       const moveAmount = e.shiftKey ? 10 : 1; // Shift for larger moves
       let moved = false;
-      
+
       switch (e.key) {
         case 'ArrowUp':
           activeObject.set('top', (activeObject.top || 0) - moveAmount);
@@ -1003,7 +904,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           moved = true;
           break;
       }
-      
+
       if (moved) {
         e.preventDefault();
         activeObject.setCoords();
@@ -1011,7 +912,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         saveToHistory();
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeCanvas, saveToHistory]);
@@ -1019,18 +920,18 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   const handleUndo = useCallback(() => {
     const currentIndex = historyIndexRef.current;
     const currentHistory = historyRef.current;
-    
+
     if (currentIndex <= 0 || !activeCanvas || !currentHistory[currentIndex - 1]) {
       console.log('Undo: Cannot undo', { currentIndex, historyLength: currentHistory.length });
       return;
     }
-    
+
     isHistoryActionRef.current = true;
     const newIndex = currentIndex - 1;
     const stateToLoad = currentHistory[newIndex];
-    
+
     console.log('Undo: Loading state', { newIndex, historyLength: currentHistory.length });
-    
+
     try {
       activeCanvas.loadFromJSON(JSON.parse(stateToLoad)).then(() => {
         activeCanvas.requestRenderAll();
@@ -1051,18 +952,18 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   const handleRedo = useCallback(() => {
     const currentIndex = historyIndexRef.current;
     const currentHistory = historyRef.current;
-    
+
     if (currentIndex >= currentHistory.length - 1 || !activeCanvas || !currentHistory[currentIndex + 1]) {
       console.log('Redo: Cannot redo', { currentIndex, historyLength: currentHistory.length });
       return;
     }
-    
+
     isHistoryActionRef.current = true;
     const newIndex = currentIndex + 1;
     const stateToLoad = currentHistory[newIndex];
-    
+
     console.log('Redo: Loading state', { newIndex, historyLength: currentHistory.length });
-    
+
     try {
       activeCanvas.loadFromJSON(JSON.parse(stateToLoad)).then(() => {
         activeCanvas.requestRenderAll();
@@ -1081,12 +982,19 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   }, [activeCanvas, updateObjectsList]);
 
   const handleZoom = useCallback((direction: 'in' | 'out') => {
-    const newZoom = direction === 'in' 
-      ? Math.min(zoom * 1.2, 3) 
+    const newZoom = direction === 'in'
+      ? Math.min(zoom * 1.2, 3)
       : Math.max(zoom / 1.2, 0.25);
     setZoom(newZoom);
-    // Use CSS transform for zoom - no canvas resizing needed for crisp rendering
-  }, [zoom]);
+
+    // Apply zoom to canvas viewport for better quality
+    if (activeCanvas) {
+      activeCanvas.setZoom(newZoom);
+      activeCanvas.setWidth(widthMm * mmToPixels * newZoom);
+      activeCanvas.setHeight(heightMm * mmToPixels * newZoom);
+      activeCanvas.requestRenderAll();
+    }
+  }, [zoom, activeCanvas, widthMm, heightMm]);
 
   const addShape = useCallback((type: string) => {
     if (!activeCanvas) return;
@@ -1096,7 +1004,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const canvasHeight = (heightMm * mmToPixels) / zoom;
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
-    
+
     // Calculate max size to fit within template
     const maxWidth = Math.min(100, canvasWidth * 0.4);
     const maxHeight = Math.min(60, canvasHeight * 0.4);
@@ -1229,20 +1137,20 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
   const addText = useCallback((text: string, isVariable = false) => {
     if (!activeCanvas) return;
-    
+
     const canvasWidth = (widthMm * mmToPixels) / zoom;
     const canvasHeight = (heightMm * mmToPixels) / zoom;
-    
+
     // Calculate text width that fits within template
     const maxTextWidth = Math.min(150, canvasWidth * 0.8);
-    
+
     // Use last text settings for variables, custom settings for headings
     const lastSettings = lastTextSettingsRef.current;
     let fontSize = lastSettings.fontSize;
     let fontFamily = lastSettings.fontFamily;
     let fontWeight: string | number = 'normal';
     let fill = lastSettings.fill;
-    
+
     if (!isVariable) {
       if (text === 'Heading') {
         fontSize = Math.min(32, canvasHeight * 0.15);
@@ -1254,7 +1162,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         fontSize = Math.min(16, canvasHeight * 0.08);
       }
     }
-    
+
     // Position text within template bounds
     const textLeft = Math.max(5, (canvasWidth - maxTextWidth) / 2);
     const textTop = Math.max(5, (canvasHeight - fontSize) / 2);
@@ -1279,8 +1187,6 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       strokeWidth: 0,
       padding: 0,
       splitByGrapheme: lastSettings.wordWrap, // Word wrap support
-      lineHeight: 1.2, // Default line height for proper text spacing
-      textAlign: 'left',
       data: {
         type: isVariable ? 'variable' : 'text',
         field: isVariable ? text.replace(/[{}]/g, '') : undefined,
@@ -1290,7 +1196,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         wordWrap: lastSettings.wordWrap,
       },
     });
-    
+
     // Add custom styling for selection
     textbox.set({
       borderColor: 'hsl(var(--primary))',
@@ -1300,7 +1206,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       cornerSize: 8,
       transparentCorners: false,
     });
-    
+
     // Set control visibility - only show horizontal resize handles for textboxes
     // This makes it clear that width adjusts text wrapping, not scaling
     textbox.setControlsVisibility({
@@ -1314,7 +1220,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       mb: false, // hide bottom-middle (vertical stretch)
       mtr: true, // rotation handle
     });
-    
+
     activeCanvas.add(textbox);
     activeCanvas.setActiveObject(textbox);
     activeCanvas.requestRenderAll();
@@ -1330,17 +1236,17 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       FabricImage.fromURL(imgUrl, { crossOrigin: 'anonymous' }).then((img) => {
         const maxWidth = (widthMm * mmToPixels) * 0.5;
         const maxHeight = (heightMm * mmToPixels) * 0.5;
-        
+
         if (img.width && img.height) {
           const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
           img.scale(scale);
         }
-        
+
         img.set({
           left: 50,
           top: 50,
         });
-        
+
         activeCanvas.add(img);
         activeCanvas.setActiveObject(img);
         activeCanvas.requestRenderAll();
@@ -1350,14 +1256,14 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     reader.readAsDataURL(file);
   }, [activeCanvas, widthMm, heightMm]);
 
-  const addPlaceholder = useCallback(async (type: 'photo' | 'barcode' | 'qrcode', shape: PhotoShape = 'rect', customMaskUrl?: string) => {
+  const addPlaceholder = useCallback((type: 'photo' | 'barcode' | 'qrcode', shape: PhotoShape = 'rect', customMaskUrl?: string) => {
     if (!activeCanvas) return;
 
     const canvasWidth = (widthMm * mmToPixels) / zoom;
     const canvasHeight = (heightMm * mmToPixels) / zoom;
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
-    
+
     // Calculate placeholder size that fits within template
     const maxPhotoWidth = Math.min(80, canvasWidth * 0.35);
     const maxPhotoHeight = Math.min(100, canvasHeight * 0.45);
@@ -1368,7 +1274,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     if (type === 'photo') {
       const width = maxPhotoWidth;
       const height = maxPhotoHeight;
-      
+
       // Handle custom mask
       if (shape === 'custom' && customMaskUrl) {
         FabricImage.fromURL(customMaskUrl, { crossOrigin: 'anonymous' }).then((img) => {
@@ -1377,7 +1283,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
             const scale = Math.min(maxSize / img.width, maxSize / img.height);
             img.scale(scale);
           }
-          
+
           img.set({
             left: Math.max(5, centerX - maxSize / 2),
             top: Math.max(5, centerY - maxSize / 2),
@@ -1386,7 +1292,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
             strokeWidth: 2,
             strokeDashArray: [5, 5],
           });
-          
+
           activeCanvas.add(img);
           activeCanvas.setActiveObject(img);
           activeCanvas.requestRenderAll();
@@ -1395,7 +1301,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         });
         return;
       }
-      
+
       switch (shape) {
         case 'circle':
           fabricObj = new Circle({
@@ -1514,94 +1420,56 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           break;
       }
     } else if (type === 'barcode') {
-      // Generate actual barcode image
-      const { generateBarcodeDataUrl } = await import('@/lib/codeGenerators');
-      const barcodeData = '{{barcode}}';
-      const placeholderData = 'ID12345';
-      
-      try {
-        const dataUrl = await generateBarcodeDataUrl(placeholderData, {
-          format: 'CODE128',
-          width: 2,
-          height: 50,
-          displayValue: true,
-        });
-        
-        FabricImage.fromURL(dataUrl, { crossOrigin: 'anonymous' }).then((img) => {
-          const maxWidth = Math.min(150, canvasWidth * 0.6);
-          if (img.width && img.height) {
-            const scale = maxWidth / img.width;
-            img.scale(scale);
-          }
-          
-          img.set({
-            left: Math.max(5, centerX - (img.width! * (img.scaleX || 1)) / 2),
-            top: Math.max(5, centerY - (img.height! * (img.scaleY || 1)) / 2),
-            data: { 
-              type: 'variable', 
-              field: 'barcode', 
-              isBarcode: true,
-              barcodeFormat: 'CODE128',
-              barcodeWidth: 2,
-              barcodeHeight: 50,
-              showValue: true,
-              dataField: barcodeData,
-            },
-          });
-          
-          activeCanvas.add(img);
-          activeCanvas.setActiveObject(img);
-          activeCanvas.requestRenderAll();
-          setActiveTool('select');
-          toast.success('Barcode added');
-        });
-      } catch (error) {
-        toast.error('Failed to generate barcode');
-      }
-      return; // Early return since we handle adding asynchronously
+      const barcodeWidth = Math.min(120, canvasWidth * 0.5);
+      const barcodeHeight = Math.min(40, canvasHeight * 0.2);
+      fabricObj = new Rect({
+        left: Math.max(5, centerX - barcodeWidth / 2),
+        top: Math.max(5, centerY - barcodeHeight / 2),
+        width: barcodeWidth,
+        height: barcodeHeight,
+        fill: '#f3f4f6',
+        stroke: '#d1d5db',
+        strokeWidth: 1,
+      });
+      fabricObj.set('data', { type: 'variable', field: 'barcode', isBarcode: true });
+
+      // Add barcode lines visual indicator
+      const barcodeText = new Textbox('||||||||||||||||', {
+        left: centerX - 55,
+        top: centerY - 15,
+        fontSize: 24,
+        fontFamily: 'Courier New',
+        fill: '#374151',
+        selectable: false,
+        evented: false,
+      });
+      barcodeText.set('data', { isBarcodeVisual: true });
+      activeCanvas.add(barcodeText);
     } else if (type === 'qrcode') {
-      // Generate actual QR code image
-      const { generateQRCodeDataUrl } = await import('@/lib/codeGenerators');
-      const qrData = '{{qr_code}}';
-      const placeholderData = 'https://example.com';
-      
-      try {
-        const dataUrl = await generateQRCodeDataUrl(placeholderData, {
-          width: 200,
-          color: { dark: '#000000', light: '#ffffff' },
-        });
-        
-        FabricImage.fromURL(dataUrl, { crossOrigin: 'anonymous' }).then((img) => {
-          const maxSize = Math.min(80, canvasWidth * 0.3, canvasHeight * 0.4);
-          if (img.width && img.height) {
-            const scale = maxSize / Math.max(img.width, img.height);
-            img.scale(scale);
-          }
-          
-          img.set({
-            left: Math.max(5, centerX - (img.width! * (img.scaleX || 1)) / 2),
-            top: Math.max(5, centerY - (img.height! * (img.scaleY || 1)) / 2),
-            data: { 
-              type: 'variable', 
-              field: 'qr_code', 
-              isQR: true,
-              qrSize: 200,
-              qrDarkColor: '#000000',
-              qrLightColor: '#ffffff',
-              dataField: qrData,
-            },
-          });
-          
-          activeCanvas.add(img);
-          activeCanvas.setActiveObject(img);
-          activeCanvas.requestRenderAll();
-          setActiveTool('select');
-          toast.success('QR Code added');
-        });
-      } catch (error) {
-        toast.error('Failed to generate QR code');
-      }
-      return; // Early return since we handle adding asynchronously
+      fabricObj = new Rect({
+        left: centerX - 30,
+        top: centerY - 30,
+        width: 60,
+        height: 60,
+        fill: '#f3f4f6',
+        stroke: '#d1d5db',
+        strokeWidth: 1,
+      });
+      fabricObj.set('data', { type: 'variable', field: 'qr_code', isQR: true });
+
+      // Add QR visual indicator
+      const qrText = new Textbox('QR', {
+        left: centerX - 12,
+        top: centerY - 8,
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 'bold',
+        fill: '#6b7280',
+        selectable: false,
+        evented: false,
+      });
+      qrText.set('data', { isQRVisual: true });
+      activeCanvas.add(qrText);
     }
 
     if (fabricObj) {
@@ -1646,23 +1514,23 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   // Add custom shape to canvas
   const addCustomShapeToCanvas = useCallback((shapeUrl: string, shapeName: string) => {
     if (!activeCanvas) return;
-    
+
     const centerX = (widthMm * mmToPixels) / 2 / zoom;
     const centerY = (heightMm * mmToPixels) / 2 / zoom;
-    
+
     FabricImage.fromURL(shapeUrl, { crossOrigin: 'anonymous' }).then((img) => {
       const maxSize = 100;
       if (img.width && img.height) {
         const scale = Math.min(maxSize / img.width, maxSize / img.height);
         img.scale(scale);
       }
-      
+
       img.set({
         left: centerX - 50,
         top: centerY - 50,
         data: { type: 'customShape', name: shapeName },
       });
-      
+
       activeCanvas.add(img);
       activeCanvas.setActiveObject(img);
       activeCanvas.requestRenderAll();
@@ -1676,23 +1544,23 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   // Add icon to canvas
   const addIconToCanvas = useCallback((iconName: string, iconUrl: string) => {
     if (!activeCanvas) return;
-    
+
     const centerX = (widthMm * mmToPixels) / 2 / zoom;
     const centerY = (heightMm * mmToPixels) / 2 / zoom;
-    
+
     FabricImage.fromURL(iconUrl, { crossOrigin: 'anonymous' }).then((img) => {
       const maxSize = 50; // Icons are typically smaller
       if (img.width && img.height) {
         const scale = Math.min(maxSize / img.width, maxSize / img.height);
         img.scale(scale);
       }
-      
+
       img.set({
         left: centerX - 25,
         top: centerY - 25,
         data: { type: 'icon', name: iconName },
       });
-      
+
       activeCanvas.add(img);
       activeCanvas.setActiveObject(img);
       activeCanvas.requestRenderAll();
@@ -1706,21 +1574,21 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   // Change photo placeholder shape
   const changePhotoPlaceholderShape = useCallback((newShape: PhotoShape, customMaskUrl?: string) => {
     if (!selectedObject || !activeCanvas) return;
-    
+
     // Check if selected object is a photo placeholder
     const objData = selectedObject.data;
     if (!objData?.isPhoto) return;
-    
+
     // Get current position and size
     const bounds = selectedObject.getBoundingRect();
     const left = selectedObject.left || 0;
     const top = selectedObject.top || 0;
     const currentWidth = bounds.width / (activeCanvas.getZoom() || 1);
     const currentHeight = bounds.height / (activeCanvas.getZoom() || 1);
-    
+
     // Remove old object
     activeCanvas.remove(selectedObject);
-    
+
     // Handle custom mask
     if (newShape === 'custom' && customMaskUrl) {
       FabricImage.fromURL(customMaskUrl, { crossOrigin: 'anonymous' }).then((img) => {
@@ -1728,7 +1596,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           const scale = Math.min(currentWidth / img.width, currentHeight / img.height);
           img.scale(scale);
         }
-        
+
         img.set({
           left,
           top,
@@ -1737,19 +1605,20 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           strokeWidth: 2,
           strokeDashArray: [5, 5],
         });
-        
+
         activeCanvas.add(img);
         activeCanvas.setActiveObject(img);
         activeCanvas.requestRenderAll();
+        saveToHistory(true);
         setSelectedObject(img);
         toast.success('Photo shape changed to custom');
       });
       return;
     }
-    
+
     // Create new object with same position but new shape
     let newObj: any;
-    
+
     switch (newShape) {
       case 'circle':
         newObj = new Circle({
@@ -1858,14 +1727,15 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         });
         break;
     }
-    
+
     newObj.set('data', { type: 'variable', field: 'photo', isPhoto: true, shape: newShape });
     activeCanvas.add(newObj);
     activeCanvas.setActiveObject(newObj);
     activeCanvas.requestRenderAll();
+    saveToHistory(true);
     setSelectedObject(newObj);
     toast.success(`Photo shape changed to ${newShape}`);
-  }, [selectedObject, activeCanvas]);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const handleDelete = useCallback(() => {
     if (!activeCanvas) return;
@@ -1873,8 +1743,9 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     activeObjects.forEach((obj) => activeCanvas.remove(obj));
     activeCanvas.discardActiveObject();
     activeCanvas.requestRenderAll();
+    saveToHistory(true);
     setSelectedObject(null);
-  }, [activeCanvas]);
+  }, [activeCanvas, saveToHistory]);
 
   const handleCopy = useCallback(() => {
     if (!selectedObject) return;
@@ -1894,8 +1765,9 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       activeCanvas.add(cloned);
       activeCanvas.setActiveObject(cloned);
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
     });
-  }, [clipboard, activeCanvas]);
+  }, [clipboard, activeCanvas, saveToHistory]);
 
   // Background handlers
   const handleBackgroundColorChange = useCallback((color: string) => {
@@ -1903,30 +1775,31 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     if (activeCanvas) {
       activeCanvas.backgroundColor = color;
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
     }
-  }, [activeCanvas]);
+  }, [activeCanvas, saveToHistory]);
 
   const handleBackgroundGradientChange = useCallback((gradientConfig: any) => {
     if (!activeCanvas) return;
-    
+
     try {
       const canvasWidth = widthMm * mmToPixels;
       const canvasHeight = heightMm * mmToPixels;
-      
+
       // Remove any existing gradient background rect
       const existingGradientBg = activeCanvas.getObjects().find((obj: any) => obj.data?.isGradientBackground);
       if (existingGradientBg) {
         activeCanvas.remove(existingGradientBg);
       }
-      
+
       const fabricGradientConfig = gradientConfigToFabric(gradientConfig, canvasWidth, canvasHeight);
-      
+
       // Create gradient with proper Fabric.js v6 API
       const colorStops = Object.entries(fabricGradientConfig.colorStops).map(([offset, color]) => ({
         offset: parseFloat(offset),
         color: color as string,
       }));
-      
+
       let gradient;
       if (fabricGradientConfig.type === 'radial') {
         gradient = new Gradient<'radial'>({
@@ -1941,7 +1814,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           colorStops,
         });
       }
-      
+
       // Create a full-canvas rect with gradient fill (canvas.backgroundColor doesn't support gradients)
       const gradientRect = new Rect({
         left: 0,
@@ -1957,15 +1830,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         lockMovementY: true,
         data: { isGradientBackground: true },
       });
-      
+
       activeCanvas.add(gradientRect);
       activeCanvas.sendObjectToBack(gradientRect);
-      
+
       // Clear solid background color since we're using gradient rect
       activeCanvas.backgroundColor = 'transparent';
       setBackgroundColor('transparent');
-      
+
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
     } catch (error) {
       console.error('Error applying gradient:', error);
       toast.error('Failed to apply gradient');
@@ -1980,14 +1854,14 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       FabricImage.fromURL(imgUrl, { crossOrigin: 'anonymous' }).then((img) => {
         const canvasWidth = widthMm * mmToPixels;
         const canvasHeight = heightMm * mmToPixels;
-        
+
         if (img.width && img.height) {
           const scaleX = canvasWidth / img.width;
           const scaleY = canvasHeight / img.height;
           img.scaleX = scaleX;
           img.scaleY = scaleY;
         }
-        
+
         img.set({
           left: 0,
           top: 0,
@@ -1999,19 +1873,20 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           lockMovementY: true,
           data: { isBackground: true },
         });
-        
+
         // Remove existing background image
         const existingBg = activeCanvas.getObjects().find((obj: any) => obj.data?.isBackground);
         if (existingBg) activeCanvas.remove(existingBg);
-        
+
         activeCanvas.add(img);
         activeCanvas.sendObjectToBack(img);
         activeCanvas.requestRenderAll();
+        saveToHistory(true);
         setHasBackgroundImage(true);
       });
     };
     reader.readAsDataURL(file);
-  }, [activeCanvas, widthMm, heightMm]);
+  }, [activeCanvas, widthMm, heightMm, saveToHistory]);
 
   const handleRemoveBackgroundImage = useCallback(() => {
     if (!activeCanvas) return;
@@ -2019,6 +1894,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     if (bgImage) {
       activeCanvas.remove(bgImage);
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
       setHasBackgroundImage(false);
     }
   }, [activeCanvas]);
@@ -2029,6 +1905,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     if (gradientBg) {
       activeCanvas.remove(gradientBg);
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
     }
   }, [activeCanvas]);
 
@@ -2037,7 +1914,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     if (!selectedObject || !activeCanvas) return;
     selectedObject.set('left', 0);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const alignCenter = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
@@ -2045,7 +1923,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const objWidth = selectedObject.width * (selectedObject.scaleX || 1);
     selectedObject.set('left', (canvasWidth - objWidth) / 2);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const alignRight = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
@@ -2053,13 +1932,15 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const objWidth = selectedObject.width * (selectedObject.scaleX || 1);
     selectedObject.set('left', canvasWidth - objWidth);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const alignTop = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
     selectedObject.set('top', 0);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const alignMiddle = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
@@ -2067,7 +1948,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const objHeight = selectedObject.height * (selectedObject.scaleY || 1);
     selectedObject.set('top', (canvasHeight - objHeight) / 2);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const alignBottom = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
@@ -2075,62 +1957,122 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const objHeight = selectedObject.height * (selectedObject.scaleY || 1);
     selectedObject.set('top', canvasHeight - objHeight);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const flipHorizontal = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
     selectedObject.set('flipX', !selectedObject.flipX);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
   const flipVertical = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
     selectedObject.set('flipY', !selectedObject.flipY);
     activeCanvas.requestRenderAll();
-  }, [selectedObject, activeCanvas]);
+    saveToHistory(true);
+  }, [selectedObject, activeCanvas, saveToHistory]);
 
-  const bringForward = useCallback((obj?: any) => {
+  const moveObjectUp = useCallback((obj?: any) => {
     const target = obj || selectedObject;
     if (!target || !activeCanvas) return;
-    
-    // Find the actual object in the canvas by matching properties
-    const canvasObjects = activeCanvas.getObjects();
-    const actualObject = canvasObjects.find((o: any) => o === target);
-    
-    if (actualObject) {
-      activeCanvas.bringObjectForward(actualObject);
+
+    // Check if object is locked
+    if (target.lockMovementY) {
+      toast.error('This item is locked and cannot be moved');
+      return;
+    }
+
+    const canvasObjects = activeCanvas.getObjects().filter((o: any) => !o.data?.isGuideline);
+    // Sort by top, then left for stability
+    const sorted = [...canvasObjects].sort((a, b) => {
+      if ((a.top || 0) !== (b.top || 0)) return (a.top || 0) - (b.top || 0);
+      return (a.left || 0) - (b.left || 0);
+    });
+
+    const currentIndex = sorted.indexOf(target);
+
+    if (currentIndex > 0) {
+      const prevObj = sorted[currentIndex - 1];
+
+      // Check if neighbor is locked
+      if (prevObj.lockMovementY) {
+        toast.error('The item above is locked');
+        return;
+      }
+
+      // Swap Y positions (top)
+      const targetTop = target.top;
+      const prevTop = prevObj.top;
+
+      target.set('top', prevTop);
+      prevObj.set('top', targetTop);
+
+      target.setCoords();
+      prevObj.setCoords();
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
       updateObjectsList();
     }
-  }, [selectedObject, activeCanvas, updateObjectsList]);
+  }, [selectedObject, activeCanvas, updateObjectsList, saveToHistory]);
 
-  const sendBackward = useCallback((obj?: any) => {
+  const moveObjectDown = useCallback((obj?: any) => {
     const target = obj || selectedObject;
     if (!target || !activeCanvas) return;
-    
-    // Find the actual object in the canvas by matching properties
-    const canvasObjects = activeCanvas.getObjects();
-    const actualObject = canvasObjects.find((o: any) => o === target);
-    
-    if (actualObject) {
-      activeCanvas.sendObjectBackwards(actualObject);
+
+    // Check if object is locked
+    if (target.lockMovementY) {
+      toast.error('This item is locked and cannot be moved');
+      return;
+    }
+
+    const canvasObjects = activeCanvas.getObjects().filter((o: any) => !o.data?.isGuideline);
+    // Sort by top, then left for stability
+    const sorted = [...canvasObjects].sort((a, b) => {
+      if ((a.top || 0) !== (b.top || 0)) return (a.top || 0) - (b.top || 0);
+      return (a.left || 0) - (b.left || 0);
+    });
+
+    const currentIndex = sorted.indexOf(target);
+
+    if (currentIndex >= 0 && currentIndex < sorted.length - 1) {
+      const nextObj = sorted[currentIndex + 1];
+
+      // Check if neighbor is locked
+      if (nextObj.lockMovementY) {
+        toast.error('The item below is locked');
+        return;
+      }
+
+      // Swap Y positions (top)
+      const targetTop = target.top;
+      const nextTop = nextObj.top;
+
+      target.set('top', nextTop);
+      nextObj.set('top', targetTop);
+
+      target.setCoords();
+      nextObj.setCoords();
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
       updateObjectsList();
     }
-  }, [selectedObject, activeCanvas, updateObjectsList]);
+  }, [selectedObject, activeCanvas, updateObjectsList, saveToHistory]);
 
   const toggleVisibility = useCallback((obj: any) => {
     if (!activeCanvas) return;
     obj.set('visible', !obj.visible);
     activeCanvas.requestRenderAll();
+    saveToHistory(true);
     updateObjectsList();
-  }, [activeCanvas, updateObjectsList]);
+  }, [activeCanvas, updateObjectsList, saveToHistory]);
 
   const toggleLock = useCallback((obj: any) => {
     if (!activeCanvas) return;
     const isCurrentlyLocked = obj.lockMovementX && obj.lockMovementY;
     const newLockedState = !isCurrentlyLocked;
-    
+
     obj.set({
       lockMovementX: newLockedState,
       lockMovementY: newLockedState,
@@ -2143,15 +2085,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       hasControls: !newLockedState,
       hasBorders: !newLockedState,
     });
-    
+
     // Deselect if locking
     if (newLockedState && activeCanvas.getActiveObject() === obj) {
       activeCanvas.discardActiveObject();
     }
-    
+
     activeCanvas.requestRenderAll();
+    saveToHistory(true);
     updateObjectsList();
-  }, [activeCanvas, updateObjectsList]);
+  }, [activeCanvas, updateObjectsList, saveToHistory]);
 
   const handleExport = useCallback(() => {
     if (!activeCanvas) return;
@@ -2191,6 +2134,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       activeCanvas.add(cloned);
       activeCanvas.setActiveObject(cloned);
       activeCanvas.requestRenderAll();
+      saveToHistory(true);
       toast.success('Object duplicated');
     });
   }, [selectedObject, activeCanvas]);
@@ -2199,22 +2143,24 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     if (!selectedObject || !activeCanvas) return;
     activeCanvas.bringObjectToFront(selectedObject);
     activeCanvas.requestRenderAll();
+    saveToHistory(true);
     updateObjectsList();
-  }, [selectedObject, activeCanvas, updateObjectsList]);
+  }, [selectedObject, activeCanvas, updateObjectsList, saveToHistory]);
 
   const sendToBack = useCallback(() => {
     if (!selectedObject || !activeCanvas) return;
     activeCanvas.sendObjectToBack(selectedObject);
     activeCanvas.requestRenderAll();
+    saveToHistory(true);
     updateObjectsList();
-  }, [selectedObject, activeCanvas, updateObjectsList]);
+  }, [selectedObject, activeCanvas, updateObjectsList, saveToHistory]);
 
   // Detect variables from canvas objects
   const extractVariables = useCallback(() => {
     if (!activeCanvas) return [];
     const variables: string[] = [];
     const variableRegex = /\{\{(\w+)\}\}/g;
-    
+
     activeCanvas.getObjects().forEach((obj: any) => {
       if (obj.type === 'textbox' && obj.text) {
         let match;
@@ -2243,30 +2189,30 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   const calculateAutoFontSize = useCallback((obj: any, text: string, maxWidth: number, maxHeight: number): number => {
     const baseFontSize = obj.fontSize || 16;
     const minFontSize = 10; // Minimum readable font size
-    
+
     // Create a temporary canvas to measure text
     const tempCanvas = document.createElement('canvas');
     const ctx = tempCanvas.getContext('2d');
     if (!ctx) return baseFontSize;
-    
+
     let fontSize = baseFontSize;
     const fontFamily = obj.fontFamily || 'Arial';
     const fontWeight = obj.fontWeight || 'normal';
     const lineHeight = obj.lineHeight || 1.2;
-    
+
     // Binary search for optimal font size
     let minSize = minFontSize;
     let maxSize = baseFontSize;
-    
+
     while (minSize <= maxSize) {
       const testSize = Math.floor((minSize + maxSize) / 2);
       ctx.font = `${fontWeight} ${testSize}px ${fontFamily}`;
-      
+
       // Measure text width
       const textWidth = ctx.measureText(text).width;
       // Estimate text height (for single line)
       const textHeight = testSize * lineHeight;
-      
+
       if (textWidth <= maxWidth && textHeight <= maxHeight) {
         fontSize = testSize;
         minSize = testSize + 1;
@@ -2274,7 +2220,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         maxSize = testSize - 1;
       }
     }
-    
+
     return Math.max(minFontSize, fontSize);
   }, []);
 
@@ -2282,7 +2228,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   const handlePreviewData = useCallback((data: Record<string, string>) => {
     if (!activeCanvas) return;
     setPreviewData(data);
-    
+
     // Replace variable text with preview data
     activeCanvas.getObjects().forEach((obj: any) => {
       if (obj.type === 'textbox' && obj.text) {
@@ -2294,13 +2240,13 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         if (!obj.data.originalFontSize) {
           obj.data.originalFontSize = obj.fontSize;
         }
-        
+
         // Replace variables with data
         let newText = obj.data.originalText;
         Object.entries(data).forEach(([key, value]) => {
           newText = newText.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
         });
-        
+
         // Apply auto font size if enabled
         if (obj.data?.autoFontSize) {
           const maxWidth = (obj.width || 100) * (obj.scaleX || 1);
@@ -2308,7 +2254,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           const optimalFontSize = calculateAutoFontSize(obj, newText, maxWidth, maxHeight);
           obj.set('fontSize', optimalFontSize);
         }
-        
+
         obj.set('text', newText);
       }
     });
@@ -2317,7 +2263,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
   const handleResetPreview = useCallback(() => {
     if (!activeCanvas) return;
-    
+
     // Restore original text and font size
     activeCanvas.getObjects().forEach((obj: any) => {
       if (obj.type === 'textbox' && obj.data?.originalText) {
@@ -2375,22 +2321,22 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   // Pan tool handlers - use refs to avoid re-registering event handlers
   useEffect(() => {
     if (!activeCanvas) return;
-    
+
     const handleMouseDown = (opt: any) => {
       if (activeTool === 'pan') {
         // Completely prevent any selection when panning
         opt.e.preventDefault();
         opt.e.stopPropagation();
-        
+
         // Disable canvas selection and deselect any object
         activeCanvas.selection = false;
         activeCanvas.discardActiveObject();
-        
+
         // Ensure no object is targeted
         if (opt.target) {
           opt.target = null;
         }
-        
+
         isPanningRef.current = true;
         activeCanvas.defaultCursor = 'grabbing';
         activeCanvas.hoverCursor = 'grabbing';
@@ -2417,7 +2363,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         activeCanvas.hoverCursor = 'move';
       }
     };
-    
+
     const handleMouseMove = (opt: any) => {
       if (activeTool === 'pan' && isPanningRef.current && lastPanPositionRef.current) {
         const vpt = activeCanvas.viewportTransform;
@@ -2429,7 +2375,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         }
       }
     };
-    
+
     const handleMouseUp = () => {
       if (activeTool === 'pan') {
         isPanningRef.current = false;
@@ -2438,7 +2384,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         lastPanPositionRef.current = null;
       }
     };
-    
+
     // When pan tool is active, disable object selection entirely
     if (activeTool === 'pan') {
       activeCanvas.selection = false;
@@ -2470,11 +2416,11 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       });
       activeCanvas.requestRenderAll();
     }
-    
+
     activeCanvas.on('mouse:down', handleMouseDown);
     activeCanvas.on('mouse:move', handleMouseMove);
     activeCanvas.on('mouse:up', handleMouseUp);
-    
+
     return () => {
       activeCanvas.off('mouse:down', handleMouseDown);
       activeCanvas.off('mouse:move', handleMouseMove);
@@ -2493,23 +2439,23 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
       // Get current canvas state for the current page
       const currentDesignJson = fabricCanvas.toObject();
-      
+
       // Build pages array with updated current page
       const updatedPages = pages.map((page, index) => ({
         id: page.id,
         name: page.name,
         designJson: index === currentPageIndex ? currentDesignJson : page.designJson,
       }));
-      
+
       // Store first page as main design_json for backward compatibility
       // and all pages in a pages array within the design_json
       const designJson = {
         ...(updatedPages[0]?.designJson || currentDesignJson),
         __pages: updatedPages,
       };
-      
-      const backDesignJson = hasBackSide && backFabricCanvas 
-        ? backFabricCanvas.toObject() 
+
+      const backDesignJson = hasBackSide && backFabricCanvas
+        ? backFabricCanvas.toObject()
         : null;
 
       // Use editTemplate's vendor_id for updates, or current user's vendor_id for new templates
@@ -2555,7 +2501,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    
+
     container.addEventListener('contextmenu', handleContextMenu);
     return () => {
       container.removeEventListener('contextmenu', handleContextMenu);
@@ -2585,13 +2531,13 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
   const handlePageSelect = useCallback((index: number) => {
     if (index === currentPageIndex || !fabricCanvas) return;
-    
+
     // Save current page state
     saveCurrentPageState();
-    
+
     // Switch to new page
     setCurrentPageIndex(index);
-    
+
     // Load new page content
     const newPage = pages[index];
     if (newPage.designJson) {
@@ -2606,24 +2552,24 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       fabricCanvas.requestRenderAll();
       updateObjectsList();
     }
-    
+
     setSelectedObject(null);
   }, [currentPageIndex, fabricCanvas, pages, saveCurrentPageState, updateObjectsList]);
 
   const handleAddPage = useCallback(() => {
     if (!fabricCanvas) return;
-    
+
     // Save current page state first
     const currentDesignJson = fabricCanvas.toObject();
     const newPageIndex = pages.length; // This will be the index of the new page
-    
+
     // Create new page
     const newPage: PageData = {
       id: crypto.randomUUID(),
       name: `Page ${pages.length + 1}`,
       designJson: null,
     };
-    
+
     // Update pages: save current page design and add new page
     setPages(prev => {
       const updated = [...prev];
@@ -2635,16 +2581,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       // Add new page
       return [...updated, newPage];
     });
-    
+
     // Switch to new page index
     setCurrentPageIndex(newPageIndex);
-    
+
     // Clear canvas for new page
     fabricCanvas.clear();
     fabricCanvas.backgroundColor = '#ffffff';
     fabricCanvas.requestRenderAll();
     updateObjectsList();
-    
+
     setSelectedObject(null);
     toast.success('New page added');
   }, [fabricCanvas, pages.length, currentPageIndex, updateObjectsList]);
@@ -2652,18 +2598,18 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   const handleDuplicatePage = useCallback((index: number) => {
     // Save current page first
     saveCurrentPageState();
-    
+
     const sourcePage = pages[index];
     const duplicatedPage: PageData = {
       id: crypto.randomUUID(),
       name: `${sourcePage.name} (Copy)`,
       designJson: sourcePage.designJson ? JSON.parse(JSON.stringify(sourcePage.designJson)) : null,
     };
-    
+
     const newPages = [...pages];
     newPages.splice(index + 1, 0, duplicatedPage);
     setPages(newPages);
-    
+
     // Switch to duplicated page
     if (fabricCanvas && duplicatedPage.designJson) {
       fabricCanvas.loadFromJSON(duplicatedPage.designJson).then(() => {
@@ -2671,7 +2617,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         updateObjectsList();
       });
     }
-    
+
     setCurrentPageIndex(index + 1);
     toast.success('Page duplicated');
   }, [fabricCanvas, pages, saveCurrentPageState, updateObjectsList]);
@@ -2681,16 +2627,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       toast.error('Cannot delete the only page');
       return;
     }
-    
+
     const newPages = pages.filter((_, i) => i !== index);
     setPages(newPages);
-    
+
     // Adjust current page index if needed
     let newIndex = currentPageIndex;
     if (index <= currentPageIndex) {
       newIndex = Math.max(0, currentPageIndex - 1);
     }
-    
+
     // Load the new current page
     const newCurrentPage = newPages[newIndex];
     if (fabricCanvas) {
@@ -2706,7 +2652,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         updateObjectsList();
       }
     }
-    
+
     setCurrentPageIndex(newIndex);
     setSelectedObject(null);
     toast.success('Page deleted');
@@ -2760,6 +2706,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           case '0':
             e.preventDefault();
             setZoom(1);
+            activeCanvas?.setZoom(1);
+            activeCanvas?.requestRenderAll();
             break;
         }
       } else {
@@ -2811,7 +2759,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     if (container) {
       container.addEventListener('wheel', handleWheel, { passive: false });
     }
-    
+
     // Also prevent at document level when in designer
     const docWheelHandler = (e: WheelEvent) => {
       if ((e.ctrlKey || e.metaKey) && containerRef.current?.contains(e.target as Node)) {
@@ -2859,6 +2807,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           const scale = currentDistance / initialDistance;
           const newZoom = Math.min(Math.max(initialZoom * scale, 0.25), 4);
           setZoom(newZoom);
+          activeCanvas?.setZoom(newZoom);
+          activeCanvas?.requestRenderAll();
         }
       }
     };
@@ -2994,8 +2944,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       {/* Main Content */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Tool Sidebar */}
-        <DesignerToolsSidebar 
-          activeTab={activeSidebarTab} 
+        <DesignerToolsSidebar
+          activeTab={activeSidebarTab}
           onTabChange={setActiveSidebarTab}
           activeTool={activeTool === 'pan' ? 'pan' : activeTool === 'text' ? 'text' : 'select'}
           onToolChange={handleSidebarToolChange}
@@ -3018,21 +2968,21 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           <DesignerDataPreviewPanel onPreviewData={handlePreviewData} onResetPreview={handleResetPreview} isPreviewMode={isPreviewMode} onTogglePreviewMode={handleTogglePreviewMode} onClose={() => setActiveSidebarTab(null)} detectedVariables={detectedVariables} />
         )}
         {activeSidebarTab === 'library' && (
-          <DesignerLibraryPanel 
-            vendorId={vendorData?.id || null} 
-            onAddFont={(name, url) => { 
-              const loadFont = async () => { 
-                const fontFace = new FontFace(name, `url(${url})`); 
-                await fontFace.load(); 
-                document.fonts.add(fontFace); 
-                setCustomFonts(prev => [...prev, name]); 
+          <DesignerLibraryPanel
+            vendorId={vendorData?.id || null}
+            onAddFont={(name, url) => {
+              const loadFont = async () => {
+                const fontFace = new FontFace(name, `url(${url})`);
+                await fontFace.load();
+                document.fonts.add(fontFace);
+                setCustomFonts(prev => [...prev, name]);
                 toast.success(`Font "${name}" loaded`);
-              }; 
-              loadFont().catch(() => toast.error('Failed to load font')); 
-            }} 
-            onAddShape={(name, url) => { addCustomShapeToCanvas(url, name); }} 
+              };
+              loadFont().catch(() => toast.error('Failed to load font'));
+            }}
+            onAddShape={(name, url) => { addCustomShapeToCanvas(url, name); }}
             onAddIcon={(name, url) => { addIconToCanvas(name, url); }}
-            onClose={() => setActiveSidebarTab(null)} 
+            onClose={() => setActiveSidebarTab(null)}
           />
         )}
         {activeSidebarTab === 'batch' && (
@@ -3060,17 +3010,17 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           {/* Guide Controls */}
           <div className="flex items-center gap-4 px-3 py-1.5 bg-card/80 border-b text-xs">
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <Checkbox 
-                checked={showGuides} 
-                onCheckedChange={(checked) => setShowGuides(checked === true)} 
+              <Checkbox
+                checked={showGuides}
+                onCheckedChange={(checked) => setShowGuides(checked === true)}
                 className="h-3.5 w-3.5"
               />
               <span className="text-muted-foreground">Show Guides</span>
             </label>
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <Checkbox 
-                checked={showTopIndicator} 
-                onCheckedChange={(checked) => setShowTopIndicator(checked === true)} 
+              <Checkbox
+                checked={showTopIndicator}
+                onCheckedChange={(checked) => setShowTopIndicator(checked === true)}
                 className="h-3.5 w-3.5"
               />
               <span className="text-muted-foreground">Show "TOP" Indicator</span>
@@ -3084,16 +3034,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
               <CanvasRuler orientation="horizontal" length={widthMm} zoom={zoom} />
             </div>
           </div>
-          
+
           <div className="flex flex-1 min-h-0 overflow-hidden">
             {/* Vertical Ruler */}
             <div className="flex-shrink-0 sticky left-0 z-10 bg-background border-r">
               <CanvasRuler orientation="vertical" length={heightMm} zoom={zoom} />
             </div>
-            
+
             {/* Canvas Container with Scrollbars */}
             <div className="flex-1 overflow-auto">
-              <div 
+              <div
                 ref={containerRef}
                 className="flex items-center justify-center p-12"
                 style={{
@@ -3122,7 +3072,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
                 <div className="relative" style={{ padding: showGuides ? `${bleedMm * mmToPixels * zoom + 25}px` : '0' }}>
                   {/* Canvas Overlays */}
                   {showGuides && (
-                    <div 
+                    <div
                       className="absolute pointer-events-none"
                       style={{
                         top: bleedMm * mmToPixels * zoom + 25,
@@ -3147,15 +3097,9 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
                       />
                     </div>
                   )}
-                  
-                  {/* Main canvas container - use CSS transform for crisp zoom */}
-                  <div 
-                    className="relative shadow-2xl rounded-lg overflow-hidden border border-border"
-                    style={{
-                      transform: `scale(${zoom})`,
-                      transformOrigin: 'top left',
-                    }}
-                  >
+
+                  {/* Main canvas container */}
+                  <div className="relative shadow-2xl rounded-lg overflow-hidden border border-border">
                     <div style={{ display: activeSide === 'front' ? 'block' : 'none' }}>
                       <canvas ref={canvasRef} />
                     </div>
@@ -3181,8 +3125,8 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
             zoom={zoom}
             onZoomIn={() => handleZoom('in')}
             onZoomOut={() => handleZoom('out')}
-            onZoomReset={() => setZoom(1)}
-            onZoomChange={(newZoom) => setZoom(newZoom)}
+            onZoomReset={() => { setZoom(1); if (activeCanvas) { activeCanvas.setZoom(1); activeCanvas.setWidth(widthMm * mmToPixels); activeCanvas.setHeight(heightMm * mmToPixels); activeCanvas.requestRenderAll(); } }}
+            onZoomChange={(newZoom) => { setZoom(newZoom); if (activeCanvas) { activeCanvas.setZoom(newZoom); activeCanvas.requestRenderAll(); } }}
             showGrid={showGrid}
             onToggleGrid={() => setShowGrid(!showGrid)}
             isPreviewMode={isPreviewMode}
@@ -3198,12 +3142,13 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         </div>
 
         {/* Right Panel - Properties, Layers, Templates, Gallery, FAQ, Help */}
-        <div className="hidden md:flex w-72 lg:w-80 xl:w-[340px] flex-shrink-0 overflow-hidden">
-          <DesignerRightPanel 
-            selectedObject={selectedObject} 
+        <div className="hidden md:flex w-80 flex-shrink-0 overflow-hidden">
+          <DesignerRightPanel
+            selectedObject={selectedObject}
             canvas={activeCanvas}
             objects={objects}
             onUpdate={() => {
+              saveToHistory();
               updateObjectsList();
               if (selectedObject && (selectedObject.type === 'textbox' || selectedObject.type === 'i-text')) {
                 lastTextSettingsRef.current = {
@@ -3227,15 +3172,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
               if (activeCanvas) {
                 activeCanvas.remove(obj);
                 activeCanvas.requestRenderAll();
+                saveToHistory(true);
               }
             }}
             onToggleVisibility={toggleVisibility}
             onToggleLock={toggleLock}
             onReorderObject={(obj, direction) => {
               if (direction === 'up') {
-                bringForward(obj);
+                moveObjectUp(obj);
               } else {
-                sendBackward(obj);
+                moveObjectDown(obj);
               }
             }}
             customFonts={customFonts}
@@ -3246,11 +3192,12 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
         {/* Mobile Right Panel */}
         <div className="md:hidden">
-          <DesignerRightPanel 
-            selectedObject={selectedObject} 
+          <DesignerRightPanel
+            selectedObject={selectedObject}
             canvas={activeCanvas}
             objects={objects}
             onUpdate={() => {
+              saveToHistory();
               updateObjectsList();
               if (selectedObject && (selectedObject.type === 'textbox' || selectedObject.type === 'i-text')) {
                 lastTextSettingsRef.current = {
@@ -3274,15 +3221,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
               if (activeCanvas) {
                 activeCanvas.remove(obj);
                 activeCanvas.requestRenderAll();
+                saveToHistory(true);
               }
             }}
             onToggleVisibility={toggleVisibility}
             onToggleLock={toggleLock}
             onReorderObject={(obj, direction) => {
               if (direction === 'up') {
-                bringForward(obj);
+                moveObjectUp(obj);
               } else {
-                sendBackward(obj);
+                moveObjectDown(obj);
               }
             }}
             customFonts={customFonts}
@@ -3293,7 +3241,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       </div>
 
       {/* Context Menu */}
-      <DesignerContextMenu x={contextMenu.x} y={contextMenu.y} visible={contextMenu.visible} selectedObject={selectedObject} onClose={closeContextMenu} onCopy={handleCopy} onPaste={handlePaste} onDuplicate={handleDuplicate} onDelete={handleDelete} onLock={() => selectedObject && toggleLock(selectedObject)} onToggleVisibility={() => selectedObject && toggleVisibility(selectedObject)} onBringForward={() => bringForward()} onSendBackward={() => sendBackward()} onBringToFront={bringToFront} onSendToBack={sendToBack} onFlipH={flipHorizontal} onFlipV={flipVertical} onAlignLeft={alignLeft} onAlignCenter={alignCenter} onAlignRight={alignRight} onAlignTop={alignTop} onAlignMiddle={alignMiddle} onAlignBottom={alignBottom} hasClipboard={!!clipboard} />
+      <DesignerContextMenu x={contextMenu.x} y={contextMenu.y} visible={contextMenu.visible} selectedObject={selectedObject} onClose={closeContextMenu} onCopy={handleCopy} onPaste={handlePaste} onDuplicate={handleDuplicate} onDelete={handleDelete} onLock={() => selectedObject && toggleLock(selectedObject)} onToggleVisibility={() => selectedObject && toggleVisibility(selectedObject)} onBringForward={() => moveObjectUp()} onSendBackward={() => moveObjectDown()} onBringToFront={bringToFront} onSendToBack={sendToBack} onFlipH={flipHorizontal} onFlipV={flipVertical} onAlignLeft={alignLeft} onAlignCenter={alignCenter} onAlignRight={alignRight} onAlignTop={alignTop} onAlignMiddle={alignMiddle} onAlignBottom={alignBottom} hasClipboard={!!clipboard} />
     </div>
   );
 }

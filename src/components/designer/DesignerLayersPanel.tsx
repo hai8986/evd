@@ -4,7 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { 
+import {
   Eye, EyeOff, Lock, Unlock, Trash2, ChevronUp, ChevronDown,
   Type, Square, Circle, Image, Triangle, Star, Minus, GripVertical, Pencil, Check, X, Layers
 } from 'lucide-react';
@@ -63,7 +63,7 @@ export function DesignerLayersPanel({
     if (obj.data?.layerName) {
       return obj.data.layerName;
     }
-    
+
     const type = obj.type || 'object';
     if (obj.text) {
       const text = obj.text.substring(0, 15);
@@ -149,26 +149,30 @@ export function DesignerLayersPanel({
   const handleDrop = (e: React.DragEvent, dropIdx: number) => {
     e.preventDefault();
     const dragIdx = draggedIndex;
-    
+
     if (dragIdx !== null && dragIdx !== dropIdx) {
-      // Calculate how many positions to move
-      const reversedObjects = [...objects].reverse();
-      const draggedObj = reversedObjects[dragIdx];
-      const dropObj = reversedObjects[dropIdx];
-      
+      // Use the same sorting as in the render to identify neighbors correctly
+      const filtered = objects.filter((obj: any) => !obj.data?.isGuideline);
+      const sorted = [...filtered].sort((a, b) => {
+        if ((a.top || 0) !== (b.top || 0)) return (a.top || 0) - (b.top || 0);
+        return (a.left || 0) - (b.left || 0);
+      });
+
+      const draggedObj = sorted[dragIdx];
+
       if (dragIdx < dropIdx) {
-        // Moving down (send backward)
+        // Moving down (towards bottom of canvas)
         for (let i = 0; i < dropIdx - dragIdx; i++) {
           onMoveDown(draggedObj);
         }
       } else {
-        // Moving up (bring forward)
+        // Moving up (towards top of canvas)
         for (let i = 0; i < dragIdx - dropIdx; i++) {
           onMoveUp(draggedObj);
         }
       }
     }
-    
+
     setDraggedIndex(null);
     setDragOverIndex(null);
   };
@@ -178,11 +182,11 @@ export function DesignerLayersPanel({
     setDragOverIndex(null);
   };
 
-  // Filter out guideline objects
+  // Filter out guideline objects and background objects (optional, or just keep them at bottom)
   const filteredObjects = objects.filter((obj: any) => !obj.data?.isGuideline);
-  
-  // Reverse to show top layer first
-  const reversedObjects = [...filteredObjects].reverse();
+
+  // Sort by vertical position (top property)
+  const sortedObjects = [...filteredObjects].sort((a, b) => (a.top || 0) - (b.top || 0));
 
   return (
     <TooltipProvider>
@@ -198,13 +202,13 @@ export function DesignerLayersPanel({
         </div>
         <ScrollArea className="flex-1">
           <div className="p-1 space-y-0.5">
-            {reversedObjects.length === 0 ? (
+            {sortedObjects.length === 0 ? (
               <div className="text-xs text-muted-foreground text-center py-4">
                 No objects on canvas
               </div>
             ) : (
-              reversedObjects.map((obj, idx) => {
-                const originalIndex = filteredObjects.length - 1 - idx;
+              sortedObjects.map((obj, idx) => {
+                const originalIndex = idx;
                 const Icon = getObjectIcon(obj.type);
                 const isSelected = selectedObject === obj;
                 const isVisible = obj.visible !== false;
@@ -221,22 +225,23 @@ export function DesignerLayersPanel({
                 return (
                   <div
                     key={stableKey}
-                    draggable={!isEditing}
-                    onDragStart={(e) => handleDragStart(e, idx)}
+                    draggable={!isEditing && !isLocked}
+                    onDragStart={(e) => !isLocked && handleDragStart(e, idx)}
                     onDragOver={(e) => handleDragOver(e, idx)}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, idx)}
                     onDragEnd={handleDragEnd}
-                    className={`flex items-center gap-1 p-1.5 rounded cursor-pointer group transition-all ${
-                      isSelected ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted/50'
-                    } ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-primary' : ''}`}
+                    className={`flex items-center gap-1 p-1.5 rounded cursor-pointer group transition-all ${isSelected ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted/50'
+                      } ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-primary' : ''}`}
                     onClick={() => !isEditing && onSelectObject(obj)}
                   >
                     {/* Drag Handle */}
-                    <div className="cursor-grab opacity-0 group-hover:opacity-50 hover:opacity-100 transition-opacity">
-                      <GripVertical className="h-3 w-3 text-muted-foreground" />
-                    </div>
-                    
+                    {!isLocked && (
+                      <div className="cursor-grab opacity-0 group-hover:opacity-50 hover:opacity-100 transition-opacity">
+                        <GripVertical className="h-3 w-3 text-muted-foreground" />
+                      </div>
+                    )}
+
                     {/* Thumbnail or Icon */}
                     {preview ? (
                       <div className="w-6 h-6 flex-shrink-0 rounded overflow-hidden border bg-muted">
@@ -245,7 +250,7 @@ export function DesignerLayersPanel({
                     ) : (
                       <Icon className={`h-4 w-4 flex-shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
                     )}
-                    
+
                     {/* Label / Edit Input */}
                     {isEditing ? (
                       <div className="flex-1 flex items-center gap-1">
@@ -275,14 +280,14 @@ export function DesignerLayersPanel({
                         </Button>
                       </div>
                     ) : (
-                      <span 
+                      <span
                         className={`text-xs flex-1 truncate ${!isVisible ? 'opacity-50' : ''}`}
                         onDoubleClick={(e) => handleStartEdit(obj, label, e)}
                       >
                         {label}
                       </span>
                     )}
-                    
+
                     {/* Actions */}
                     {!isEditing && (
                       <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -299,7 +304,7 @@ export function DesignerLayersPanel({
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">Rename</TooltipContent>
                         </Tooltip>
-                        
+
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -312,24 +317,24 @@ export function DesignerLayersPanel({
                               <ChevronUp className="h-3 w-3" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">Bring Forward</TooltipContent>
+                          <TooltipContent side="top" className="text-xs">Move Up</TooltipContent>
                         </Tooltip>
-                        
+
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-5 w-5"
-                              disabled={idx === reversedObjects.length - 1}
+                              disabled={idx === sortedObjects.length - 1}
                               onClick={(e) => { e.stopPropagation(); onMoveDown(obj); }}
                             >
                               <ChevronDown className="h-3 w-3" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">Send Backward</TooltipContent>
+                          <TooltipContent side="top" className="text-xs">Move Down</TooltipContent>
                         </Tooltip>
-                        
+
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -343,7 +348,7 @@ export function DesignerLayersPanel({
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">{isVisible ? 'Hide' : 'Show'}</TooltipContent>
                         </Tooltip>
-                        
+
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -357,7 +362,7 @@ export function DesignerLayersPanel({
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">{isLocked ? 'Unlock' : 'Lock'}</TooltipContent>
                         </Tooltip>
-                        
+
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
