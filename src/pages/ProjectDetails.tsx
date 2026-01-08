@@ -633,14 +633,15 @@ export default function ProjectDetails() {
 
   // AI Image Auto Crop
   const handleAIAutoCrop = async () => {
-    const recordsWithPhotos = records.filter(r => r.photo_url && !r.face_detected);
+    // Process ALL records that have a photo URL, regardless of prior face_detected flag
+    const recordsWithPhotos = records.filter(r => r.photo_url);
     if (recordsWithPhotos.length === 0) {
-      toast.error('No photos need face detection');
+      toast.error('No photos available to crop');
       return;
     }
 
     setIsProcessing(true);
-    toast.info(`Processing ${recordsWithPhotos.length} photos for face detection...`);
+    toast.info(`Processing ${recordsWithPhotos.length} photos for auto-crop...`);
 
     try {
       const { detectAndCropFace } = await import('@/lib/faceDetection');
