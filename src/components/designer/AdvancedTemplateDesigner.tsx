@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Canvas as FabricCanvas, Rect, Circle, Textbox, FabricImage, Line, Triangle, Polygon, Ellipse, Gradient } from 'fabric';
 import { gradientConfigToFabric } from './DesignerGradientPicker';
 import { DesignerToolbar, ToolType } from './DesignerToolbar';
@@ -908,6 +908,9 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       // Don't handle if we're editing text
       if (activeObject.type === 'textbox' && (activeObject as any).isEditing) return;
 
+      // Do not allow keyboard movement for locked objects
+      if (activeObject.lockMovementX === true && activeObject.lockMovementY === true) return;
+
       const moveAmount = e.shiftKey ? 10 : 1; // Shift for larger moves
       let moved = false;
 
@@ -941,6 +944,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeCanvas, saveToHistory]);
+
+  // Determine if pan should be enabled: at least one unlocked, non-background, non-guideline object exists
+  const panEnabled = useMemo(() => {
+    if (!activeCanvas) return false;
+    return activeCanvas.getObjects().some((obj: any) => {
+      if (obj.data?.isBackground || obj.data?.isGradientBackground || obj.data?.isGuideline) return false;
+      const isLocked = obj.lockMovementX === true && obj.lockMovementY === true;
+      return !isLocked;
+    });
+  }, [activeCanvas, objects]);
 
   const handleUndo = useCallback(() => {
     const currentIndex = historyIndexRef.current;
@@ -2361,11 +2374,31 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
   // Handle sidebar tool changes (pan, text click-to-add)
   const handleSidebarToolChange = useCallback((tool: SidebarToolType) => {
     if (tool === 'pan') {
-      setActiveTool('pan' as ToolType);
+      // Allow panning only when there is at least one unlocked, non-background, non-guideline object
+      let hasUnlockedObjects = false;
       if (activeCanvas) {
-        activeCanvas.selection = false;
-        activeCanvas.defaultCursor = 'grab';
-        activeCanvas.hoverCursor = 'grab';
+        hasUnlockedObjects = activeCanvas.getObjects().some((obj: any) => {
+          if (obj.data?.isBackground || obj.data?.isGradientBackground || obj.data?.isGuideline) return false;
+          const isLocked = obj.lockMovementX === true && obj.lockMovementY === true;
+          return !isLocked;
+        });
+      }
+
+      if (hasUnlockedObjects) {
+        setActiveTool('pan' as ToolType);
+        if (activeCanvas) {
+          activeCanvas.selection = false;
+          activeCanvas.defaultCursor = 'grab';
+          activeCanvas.hoverCursor = 'grab';
+        }
+      } else {
+        // If nothing can be panned, keep selection tool
+        setActiveTool('select');
+        if (activeCanvas) {
+          activeCanvas.selection = true;
+          activeCanvas.defaultCursor = 'default';
+          activeCanvas.hoverCursor = 'move';
+        }
       }
     } else if (tool === 'text') {
       setActiveTool('text');
@@ -2398,6 +2431,15 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
     const handleMouseDown = (opt: any) => {
       if (activeTool === 'pan') {
+        // Determine if there is anything unlocked to pan; if not, do nothing
+        const hasUnlockedObjects = activeCanvas.getObjects().some((obj: any) => {
+          if (obj.data?.isBackground || obj.data?.isGradientBackground || obj.data?.isGuideline) return false;
+          const isLocked = obj.lockMovementX === true && obj.lockMovementY === true;
+          return !isLocked;
+        });
+
+        if (!hasUnlockedObjects) return;
+
         // Completely prevent any selection when panning
         opt.e.preventDefault();
         opt.e.stopPropagation();
@@ -2440,13 +2482,22 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
     const handleMouseMove = (opt: any) => {
       if (activeTool === 'pan' && isPanningRef.current && lastPanPositionRef.current) {
-        const vpt = activeCanvas.viewportTransform;
-        if (vpt) {
-          vpt[4] += opt.e.clientX - lastPanPositionRef.current.x;
-          vpt[5] += opt.e.clientY - lastPanPositionRef.current.y;
-          activeCanvas.requestRenderAll();
-          lastPanPositionRef.current = { x: opt.e.clientX, y: opt.e.clientY };
-        }
+        const dx = opt.e.clientX - lastPanPositionRef.current.x;
+        const dy = opt.e.clientY - lastPanPositionRef.current.y;
+
+        // Move only unlocked, non-background, non-guideline objects
+        activeCanvas.getObjects().forEach((obj: any) => {
+          if (obj.data?.isBackground || obj.data?.isGradientBackground || obj.data?.isGuideline) return;
+          const isLocked = obj.lockMovementX === true && obj.lockMovementY === true;
+          if (isLocked) return;
+          const newLeft = (obj.left || 0) + dx;
+          const newTop = (obj.top || 0) + dy;
+          obj.set({ left: newLeft, top: newTop });
+          obj.setCoords();
+        });
+
+        activeCanvas.requestRenderAll();
+        lastPanPositionRef.current = { x: opt.e.clientX, y: opt.e.clientY };
       }
     };
 
@@ -3041,6 +3092,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
           onTabChange={setActiveSidebarTab}
           activeTool={activeTool === 'pan' ? 'pan' : activeTool === 'text' ? 'text' : 'select'}
           onToolChange={handleSidebarToolChange}
+          isPanEnabled={panEnabled}
         />
 
         {/* Floating Panels */}

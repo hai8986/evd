@@ -29,6 +29,7 @@ interface DesignerToolsSidebarProps {
   onTabChange: (tab: SidebarTab | null) => void;
   activeTool: ToolType;
   onToolChange: (tool: ToolType) => void;
+  isPanEnabled?: boolean;
 }
 
 const TOOL_ITEMS = [
@@ -62,7 +63,8 @@ export function DesignerToolsSidebar({
   activeTab, 
   onTabChange, 
   activeTool, 
-  onToolChange 
+  onToolChange,
+  isPanEnabled = true,
 }: DesignerToolsSidebarProps) {
   return (
     <TooltipProvider>
@@ -75,6 +77,7 @@ export function DesignerToolsSidebar({
                 variant={activeTool === item.id ? 'default' : 'ghost'}
                 size="icon"
                 className={`h-9 w-9 ${activeTool !== item.id ? 'text-sidebar-foreground hover:bg-sidebar-accent' : ''}`}
+                disabled={item.id === 'pan' && !isPanEnabled}
                 onClick={() => onToolChange(item.id)}
               >
                 <item.icon className="h-4 w-4" />
