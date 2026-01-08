@@ -267,7 +267,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       setSelectedObject(null);
     });
     canvas.on('object:modified', (e) => {
-      saveToHistory();
+      if (saveToHistoryRef.current) saveToHistoryRef.current();
       updateObjectsList();
 
       // Handle text scaling - adjust font size instead of scale for crisp text
@@ -289,11 +289,15 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       }
     });
     canvas.on('object:added', () => {
-      if (!isHistoryActionRef.current) saveToHistory(true);
+      if (!isHistoryActionRef.current && saveToHistoryRef.current) saveToHistoryRef.current(true);
       updateObjectsList();
     });
     canvas.on('object:removed', () => {
-      if (!isHistoryActionRef.current) saveToHistory(true);
+      if (!isHistoryActionRef.current && saveToHistoryRef.current) saveToHistoryRef.current(true);
+      updateObjectsList();
+    });
+    canvas.on('text:changed', () => {
+      if (!isHistoryActionRef.current && saveToHistoryRef.current) saveToHistoryRef.current();
       updateObjectsList();
     });
 
@@ -313,7 +317,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
     // Initial history save
     setTimeout(() => {
-      const initialState = JSON.stringify(canvas.toObject());
+      const initialState = JSON.stringify(canvas.toObject(['data']));
       setHistory([initialState]);
       historyRef.current = [initialState];
       setHistoryIndex(0);
@@ -638,7 +642,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       setSelectedObject(null);
     });
     canvas.on('object:modified', (e) => {
-      saveToHistory();
+      if (saveToHistoryRef.current) saveToHistoryRef.current();
       updateObjectsList();
 
       // Handle text scaling - adjust font size instead of scale for crisp text
@@ -660,11 +664,15 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       }
     });
     canvas.on('object:added', () => {
-      if (!isHistoryActionRef.current) saveToHistory(true);
+      if (!isHistoryActionRef.current && saveToHistoryRef.current) saveToHistoryRef.current(true);
       updateObjectsList();
     });
     canvas.on('object:removed', () => {
-      if (!isHistoryActionRef.current) saveToHistory(true);
+      if (!isHistoryActionRef.current && saveToHistoryRef.current) saveToHistoryRef.current(true);
+      updateObjectsList();
+    });
+    canvas.on('text:changed', () => {
+      if (!isHistoryActionRef.current && saveToHistoryRef.current) saveToHistoryRef.current();
       updateObjectsList();
     });
 
@@ -774,7 +782,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
               fabricCanvas.requestRenderAll();
               updateObjectsList();
               // Reset history after template loads
-              const initialState = JSON.stringify(fabricCanvas.toObject());
+              const initialState = JSON.stringify(fabricCanvas.toObject(['data']));
               historyRef.current = [initialState];
               setHistory([initialState]);
               historyIndexRef.current = 0;
@@ -795,7 +803,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
             fabricCanvas.requestRenderAll();
             updateObjectsList();
             // Reset history after template loads
-            const initialState = JSON.stringify(fabricCanvas.toObject());
+            const initialState = JSON.stringify(fabricCanvas.toObject(['data']));
             historyRef.current = [initialState];
             setHistory([initialState]);
             historyIndexRef.current = 0;
@@ -830,7 +838,18 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const saveAction = () => {
       if (!activeCanvas) return;
 
-      const json = JSON.stringify(activeCanvas.toObject());
+      // Filter out guidelines before saving
+      // Also ensure 'data' is included in serialization
+      const canvasObj = activeCanvas.toObject(['data']);
+      if (canvasObj.objects) {
+        canvasObj.objects = canvasObj.objects.filter((obj: any) =>
+          !obj.data?.isGuideline &&
+          !obj.data?.isBarcodeVisual &&
+          !obj.data?.isQRVisual
+        );
+      }
+      const json = JSON.stringify(canvasObj);
+
       const currentIndex = historyIndexRef.current;
       const currentHistory = historyRef.current;
 
@@ -866,12 +885,18 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     // Mark that we have a pending save
     pendingHistorySaveRef.current = true;
 
-    // Debounce history saves - reduced to 100ms for responsiveness
+    // Debounce history saves - set to 750ms for optimal grouping/responsiveness balance
     historyDebounceRef.current = setTimeout(() => {
       if (!pendingHistorySaveRef.current) return;
       saveAction();
-    }, 100);
+    }, 500);
   }, [activeCanvas]);
+
+  // Keep saveToHistoryRef updated to avoid stale closures in event listeners
+  const saveToHistoryRef = useRef(saveToHistory);
+  useEffect(() => {
+    saveToHistoryRef.current = saveToHistory;
+  }, [saveToHistory]);
 
   // Arrow key movement for selected objects
   useEffect(() => {
@@ -909,7 +934,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         e.preventDefault();
         activeObject.setCoords();
         activeCanvas.requestRenderAll();
-        saveToHistory();
+        if (saveToHistoryRef.current) saveToHistoryRef.current();
       }
     };
 
@@ -922,18 +947,47 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     const currentHistory = historyRef.current;
 
     if (currentIndex <= 0 || !activeCanvas || !currentHistory[currentIndex - 1]) {
-      console.log('Undo: Cannot undo', { currentIndex, historyLength: currentHistory.length });
-      return;
+      // If we have a pending save, force it now so we have something to return TO (after undoing the pending state)
+      // Actually, if we have a pending save, that IS the current state (that we want to undo).
+      // So we save it, then we can undo from it.
+      if (pendingHistorySaveRef.current) {
+        saveToHistory(true);
+        // After saving, currentIndex will increment. We need to recalculate.
+        // But logic continues in next render frame? No, saveToHistory(true) updates refs synchronously.
+        // Let's rely on the user clicking Undo again? No, we should handle it.
+        // Easier: If pending, Just Let the Save Happen, and THEN undo?
+        // Calling saveToHistory(true) updates historyRef and historyIndexRef IMMEDIATELY.
+        // So we can just proceed.
+      } else {
+        console.log('Undo: Cannot undo', { currentIndex, historyLength: currentHistory.length });
+        return;
+      }
     }
 
+    // Force save current state if pending (e.g. user typed and immediately clicked Undo)
+    if (pendingHistorySaveRef.current) {
+      saveToHistory(true);
+    }
+
+    // Re-read refs after potential save
+    const updatedIndex = historyIndexRef.current;
+    const updatedHistory = historyRef.current;
+
+    // Safety check again
+    if (updatedIndex <= 0) return;
+
     isHistoryActionRef.current = true;
-    const newIndex = currentIndex - 1;
-    const stateToLoad = currentHistory[newIndex];
+    const newIndex = updatedIndex - 1;
+    const stateToLoad = updatedHistory[newIndex];
 
     console.log('Undo: Loading state', { newIndex, historyLength: currentHistory.length });
 
     try {
       activeCanvas.loadFromJSON(JSON.parse(stateToLoad)).then(() => {
+        // Cleanup guidelines from loaded state just in case
+        activeCanvas.getObjects().filter((obj: any) => obj.data?.isGuideline).forEach((obj: any) => {
+          activeCanvas.remove(obj);
+        });
         activeCanvas.requestRenderAll();
         updateObjectsList();
         historyIndexRef.current = newIndex;
@@ -966,6 +1020,10 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
 
     try {
       activeCanvas.loadFromJSON(JSON.parse(stateToLoad)).then(() => {
+        // Cleanup guidelines from loaded state just in case
+        activeCanvas.getObjects().filter((obj: any) => obj.data?.isGuideline).forEach((obj: any) => {
+          activeCanvas.remove(obj);
+        });
         activeCanvas.requestRenderAll();
         updateObjectsList();
         historyIndexRef.current = newIndex;
@@ -2284,6 +2342,22 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
     }
   }, [handleResetPreview]);
 
+  const handleObjectChange = useCallback(() => {
+    saveToHistory();
+    updateObjectsList();
+
+    if (selectedObject && (selectedObject.type === 'textbox' || selectedObject.type === 'i-text')) {
+      lastTextSettingsRef.current = {
+        fontSize: selectedObject.fontSize || 14,
+        fontFamily: selectedObject.fontFamily || 'Arial',
+        fill: typeof selectedObject.fill === 'string' ? selectedObject.fill : '#000000',
+        textCase: selectedObject.data?.textCase || 'none',
+        autoFontSize: selectedObject.data?.autoFontSize || false,
+        wordWrap: selectedObject.splitByGrapheme !== false,
+      };
+    }
+  }, [saveToHistory, updateObjectsList, selectedObject]);
+
   // Handle sidebar tool changes (pan, text click-to-add)
   const handleSidebarToolChange = useCallback((tool: SidebarToolType) => {
     if (tool === 'pan') {
@@ -2438,7 +2512,16 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       saveCurrentPageState();
 
       // Get current canvas state for the current page
-      const currentDesignJson = fabricCanvas.toObject();
+      // Filter out guidelines and visual indicators
+      const currentCanvasObj = fabricCanvas.toObject(['data']);
+      if (currentCanvasObj.objects) {
+        currentCanvasObj.objects = currentCanvasObj.objects.filter((obj: any) =>
+          !obj.data?.isGuideline &&
+          !obj.data?.isBarcodeVisual &&
+          !obj.data?.isQRVisual
+        );
+      }
+      const currentDesignJson = currentCanvasObj;
 
       // Build pages array with updated current page
       const updatedPages = pages.map((page, index) => ({
@@ -2454,9 +2537,18 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         __pages: updatedPages,
       };
 
-      const backDesignJson = hasBackSide && backFabricCanvas
-        ? backFabricCanvas.toObject()
-        : null;
+      let backDesignJson = null;
+      if (hasBackSide && backFabricCanvas) {
+        const backCanvasObj = backFabricCanvas.toObject(['data']);
+        if (backCanvasObj.objects) {
+          backCanvasObj.objects = backCanvasObj.objects.filter((obj: any) =>
+            !obj.data?.isGuideline &&
+            !obj.data?.isBarcodeVisual &&
+            !obj.data?.isQRVisual
+          );
+        }
+        backDesignJson = backCanvasObj;
+      }
 
       // Use editTemplate's vendor_id for updates, or current user's vendor_id for new templates
       const vendorId = editTemplate?.vendor_id || vendorData?.id || null;
@@ -2922,7 +3014,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
         <DesignerAlignmentToolbar
           selectedObject={selectedObject}
           canvas={activeCanvas}
-          onUpdate={updateObjectsList}
+          onUpdate={handleObjectChange}
         />
       )}
 
@@ -2930,7 +3022,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
       <DesignerTextToolbar
         selectedObject={selectedObject}
         canvas={activeCanvas}
-        onUpdate={updateObjectsList}
+        onUpdate={handleObjectChange}
         customFonts={customFonts}
         onTextSettingsChange={(settings) => {
           // Update last text settings for new text elements
@@ -3147,20 +3239,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
             selectedObject={selectedObject}
             canvas={activeCanvas}
             objects={objects}
-            onUpdate={() => {
-              saveToHistory();
-              updateObjectsList();
-              if (selectedObject && (selectedObject.type === 'textbox' || selectedObject.type === 'i-text')) {
-                lastTextSettingsRef.current = {
-                  fontSize: selectedObject.fontSize || 14,
-                  fontFamily: selectedObject.fontFamily || 'Arial',
-                  fill: typeof selectedObject.fill === 'string' ? selectedObject.fill : '#000000',
-                  textCase: selectedObject.data?.textCase || 'none',
-                  autoFontSize: selectedObject.data?.autoFontSize || false,
-                  wordWrap: selectedObject.splitByGrapheme !== false,
-                };
-              }
-            }}
+            onUpdate={handleObjectChange}
             onSelectObject={(obj) => {
               if (activeCanvas) {
                 activeCanvas.setActiveObject(obj);
@@ -3196,20 +3275,7 @@ export function AdvancedTemplateDesigner({ editTemplate, onBack }: AdvancedTempl
             selectedObject={selectedObject}
             canvas={activeCanvas}
             objects={objects}
-            onUpdate={() => {
-              saveToHistory();
-              updateObjectsList();
-              if (selectedObject && (selectedObject.type === 'textbox' || selectedObject.type === 'i-text')) {
-                lastTextSettingsRef.current = {
-                  fontSize: selectedObject.fontSize || 14,
-                  fontFamily: selectedObject.fontFamily || 'Arial',
-                  fill: typeof selectedObject.fill === 'string' ? selectedObject.fill : '#000000',
-                  textCase: selectedObject.data?.textCase || 'none',
-                  autoFontSize: selectedObject.data?.autoFontSize || false,
-                  wordWrap: selectedObject.splitByGrapheme !== false,
-                };
-              }
-            }}
+            onUpdate={handleObjectChange}
             onSelectObject={(obj) => {
               if (activeCanvas) {
                 activeCanvas.setActiveObject(obj);
